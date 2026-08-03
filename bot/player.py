@@ -86,6 +86,8 @@ class GuildPlayer:
             "Referer": track.webpage_url,
             **track.http_headers,
         }
+        if track.cookies:
+            headers["Cookie"] = track.cookies
         header_lines = "".join(f"{key}: {value}\r\n" for key, value in headers.items() if value)
         return f'{FFMPEG_BEFORE_OPTIONS} -headers "{header_lines}"'
 

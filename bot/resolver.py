@@ -8,6 +8,7 @@ from urllib.parse import quote, urlparse
 from urllib.request import Request, urlopen
 
 import yt_dlp
+from yt_dlp.utils import DownloadError
 
 
 @dataclass
@@ -18,6 +19,7 @@ class Track:
     duration: int | None
     requester: str
     http_headers: dict[str, str]
+    cookies: str | None = None
 
 
 class Resolver:
@@ -30,7 +32,7 @@ class Resolver:
 
     def _resolve_sync(self, query: str, requester: str) -> Track:
         original_query = query
-        query = self._spotify_track_query(query)
+        query = self._normalize_query(query)
         target = query if self._looks_like_url(query) else f"ytsearch1:{query}"
         options: dict[str, Any] = {
             "format": "bestaudio/best",
@@ -43,8 +45,16 @@ class Resolver:
         if self.cookies and os.path.exists(self.cookies):
             options["cookiefile"] = self.cookies
 
-        with yt_dlp.YoutubeDL(options) as ydl:
-            data = ydl.extract_info(target, download=False)
+        try:
+            with yt_dlp.YoutubeDL(options) as ydl:
+                data = ydl.extract_info(target, download=False)
+        except DownloadError as exc:
+            if self._is_niconico_query(query):
+                raise RuntimeError(
+                    "NicoNico could not be resolved. Some Nico videos require login cookies. "
+                    "Export your NicoNico cookies to data/cookies.txt and try again."
+                ) from exc
+            raise
 
         if data is None:
             raise RuntimeError("No result found.")
@@ -65,6 +75,7 @@ class Resolver:
             duration=data.get("duration"),
             requester=requester,
             http_headers=data.get("http_headers") or {},
+            cookies=self._cookie_header() if self._is_niconico_query(query) else None,
         )
 
     def _spotify_track_query(self, query: str) -> str:
@@ -82,12 +93,49 @@ class Resolver:
 
         return f"{self._clean_spotify_title(title)} audio"
 
+    def _normalize_query(self, query: str) -> str:
+        query = query.strip()
+        query = self._spotify_track_query(query)
+        if self._looks_like_niconico_id(query):
+            return f"https://www.nicovideo.jp/watch/{query.lower()}"
+        return query
+
+    def _cookie_header(self) -> str | None:
+        if not self.cookies or not os.path.exists(self.cookies):
+            return None
+
+        cookies: list[str] = []
+        with open(self.cookies, encoding="utf-8") as cookie_file:
+            for line in cookie_file:
+                line = line.strip()
+                if not line or line.startswith("#"):
+                    continue
+                parts = line.split("\t")
+                if len(parts) >= 7:
+                    domain, _, path, secure, expires, name, value = parts[:7]
+                    if "nicovideo.jp" in domain or "nico.ms" in domain:
+                        cookies.append(f"{name}={value}")
+        return "; ".join(cookies) or None
+
     @staticmethod
     def _is_spotify_track_url(value: str) -> bool:
         if not Resolver._looks_like_url(value):
             return False
         parsed = urlparse(value)
         return parsed.netloc.endswith("spotify.com") and re.match(r"^/track/[^/]+", parsed.path) is not None
+
+    @staticmethod
+    def _is_niconico_query(value: str) -> bool:
+        if Resolver._looks_like_niconico_id(value):
+            return True
+        if not Resolver._looks_like_url(value):
+            return False
+        parsed = urlparse(value)
+        return parsed.netloc.endswith("nicovideo.jp") or parsed.netloc.endswith("nico.ms")
+
+    @staticmethod
+    def _looks_like_niconico_id(value: str) -> bool:
+        return re.fullmatch(r"(sm|so|nm|lv)\d+", value.strip(), flags=re.IGNORECASE) is not None
 
     @staticmethod
     def _clean_spotify_title(title: str) -> str:

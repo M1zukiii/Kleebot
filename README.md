@@ -44,6 +44,7 @@ Prefix examples:
 ```text
 !play https://www.youtube.com/watch?v=...
 !play https://open.spotify.com/track/...
+!play sm9
 !play never gonna give you up
 !求签
 !queue
@@ -53,3 +54,5 @@ Prefix examples:
 ## Cookies
 
 If a source needs account cookies, export them as Netscape-format cookies and save them to `data/cookies.txt`. The Compose file mounts `./data` to `/app/data`.
+
+NicoNico often needs login cookies. The bot accepts full NicoNico URLs and short IDs such as `sm9`, `so12345`, `nm12345`, and `lv12345`.
