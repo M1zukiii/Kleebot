@@ -329,7 +329,7 @@ class FortuneRerollView(discord.ui.View):
         self.guild = guild
         self.first_result = first_result
 
-    @discord.ui.button(label="重抽一次", style=discord.ButtonStyle.primary)
+    @discord.ui.button(label="再来一次！", style=discord.ButtonStyle.primary)
     async def reroll(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
         if interaction.user.id != self.user_id:
             await interaction.response.send_message("这支签不是你的，不能替别人重抽。", ephemeral=True)

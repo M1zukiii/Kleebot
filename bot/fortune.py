@@ -88,11 +88,7 @@ def fortune_text(result: FortuneResult) -> str:
 
 
 def luck_summary(result: FortuneResult) -> str:
-    text = _delta_text(result.luck_delta, result.label)
-    if not result.used_second_chance:
-        return text
-    first_text = _delta_text(result.first_luck_delta or 0, result.first_label or "不太走运")
-    return f"~~{first_text}~~\n第二次机会：{text}"
+    return _delta_text(result.luck_delta, result.label)
 
 
 def _draw_from_seed(seed: str) -> FortuneResult:
