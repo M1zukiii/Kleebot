@@ -9,6 +9,10 @@ from .resolver import Resolver, Track
 
 FFMPEG_BEFORE_OPTIONS = "-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5"
 FFMPEG_OPTIONS = "-vn"
+DEFAULT_USER_AGENT = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36"
+)
 
 
 @dataclass
@@ -57,9 +61,10 @@ class GuildPlayer:
             return
 
         self.current = self.queue.popleft()
+        before_options = self._ffmpeg_before_options(self.current)
         source = discord.FFmpegPCMAudio(
             self.current.stream_url,
-            before_options=FFMPEG_BEFORE_OPTIONS,
+            before_options=before_options,
             options=FFMPEG_OPTIONS,
         )
         audio = discord.PCMVolumeTransformer(source, volume=self.volume)
@@ -74,6 +79,15 @@ class GuildPlayer:
                 print(f"failed to play next track: {exc}", flush=True)
 
         voice_client.play(audio, after=after)
+
+    def _ffmpeg_before_options(self, track: Track) -> str:
+        headers = {
+            "User-Agent": DEFAULT_USER_AGENT,
+            "Referer": track.webpage_url,
+            **track.http_headers,
+        }
+        header_lines = "".join(f"{key}: {value}\r\n" for key, value in headers.items() if value)
+        return f'{FFMPEG_BEFORE_OPTIONS} -headers "{header_lines}"'
 
     def skip(self, guild: discord.Guild) -> bool:
         voice_client = guild.voice_client
@@ -97,4 +111,3 @@ class GuildPlayer:
             if len(self.queue) > 10:
                 lines.append(f"...and {len(self.queue) - 10} more")
         return "\n".join(lines) or "Queue is empty."
-

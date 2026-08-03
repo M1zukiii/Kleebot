@@ -54,6 +54,11 @@ async def on_ready() -> None:
             bot.tree.copy_global_to(guild=guild)
             synced = await bot.tree.sync(guild=guild)
             print(f"synced {len(synced)} command(s) to guild {GUILD_ID}", flush=True)
+        elif bot.guilds:
+            for guild in bot.guilds:
+                bot.tree.copy_global_to(guild=guild)
+                synced = await bot.tree.sync(guild=guild)
+                print(f"synced {len(synced)} command(s) to guild {guild.id}", flush=True)
         else:
             synced = await bot.tree.sync()
             print(f"synced {len(synced)} global command(s)", flush=True)
@@ -68,6 +73,7 @@ async def slash_play(interaction: discord.Interaction, query: str) -> None:
     try:
         if interaction.guild is None:
             raise RuntimeError("Use this in a server.")
+        print(f"play requested in {interaction.guild.id}: {query}", flush=True)
         track = await get_player(interaction.guild).enqueue(interaction, query)
         await interaction.followup.send(f"Queued: [{track.title}]({track.webpage_url})")
     except Exception as exc:
@@ -228,4 +234,3 @@ class _ContextInteraction:
 if __name__ == "__main__":
     Path("/app/data").mkdir(parents=True, exist_ok=True)
     asyncio.run(bot.start(TOKEN))
-

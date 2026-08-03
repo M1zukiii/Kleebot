@@ -13,6 +13,7 @@ class Track:
     stream_url: str
     duration: int | None
     requester: str
+    http_headers: dict[str, str]
 
 
 class Resolver:
@@ -57,9 +58,9 @@ class Resolver:
             stream_url=stream_url,
             duration=data.get("duration"),
             requester=requester,
+            http_headers=data.get("http_headers") or {},
         )
 
     @staticmethod
     def _looks_like_url(value: str) -> bool:
         return value.startswith("http://") or value.startswith("https://")
-
