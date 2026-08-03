@@ -61,7 +61,7 @@ Fortune cooldown data is saved in `data/fortune_cooldowns.json`. It resets daily
 
 ```bash
 docker compose up -d --build
-docker compose logs -f musicbot
+docker compose logs -f kleebot
 ```
 
 Expected log:

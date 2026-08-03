@@ -1,4 +1,4 @@
-# MusicBot
+# Kleebot
 
 Self-hosted Discord music bot for YouTube, Bilibili, NicoNico, and Spotify track links. It uses `discord.py`, `yt-dlp`, and `ffmpeg`, and is designed to run with Docker Compose.
 
@@ -24,6 +24,12 @@ Self-hosted Discord music bot for YouTube, Bilibili, NicoNico, and Spotify track
 
 ```powershell
 docker compose up -d --build
+```
+
+Follow logs:
+
+```powershell
+docker compose logs -f kleebot
 ```
 
 ## Commands

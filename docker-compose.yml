@@ -1,8 +1,9 @@
 services:
-  musicbot:
+  kleebot:
     build:
       context: .
-    container_name: musicbot
+    image: kleebot
+    container_name: kleebot
     restart: unless-stopped
     env_file:
       - .env
