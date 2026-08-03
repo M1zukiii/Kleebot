@@ -124,14 +124,14 @@ def _luck_label(luck_delta: float) -> str:
 
 def luck_color(label: str) -> int:
     colors = {
-        "极其幸运": 0xFFE066,
+        "非常不走运": 0xADB5BD,
+        "不太走运": 0xC7F9CC,
+        "一般般": 0x57CC99,
+        "好运": 0x4D96FF,
         "非常幸运": 0xF5B642,
-        "好运": 0x57CC99,
-        "一般般": 0xADB5BD,
-        "不太走运": 0xF4A261,
-        "非常不走运": 0xEF476F,
+        "极其幸运": 0xEF476F,
     }
-    return colors.get(label, 0xADB5BD)
+    return colors.get(label, 0x57CC99)
 
 
 def _delta_text(luck_delta: float, label: str) -> str:
