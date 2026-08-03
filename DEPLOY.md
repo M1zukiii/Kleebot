@@ -26,15 +26,15 @@ sudo apt install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin d
 Option A, clone from GitHub:
 
 ```bash
-git clone https://github.com/M1zukiii/MusicBot.git
-cd MusicBot
+git clone https://github.com/M1zukiii/Kleebot.git
+cd Kleebot
 ```
 
 Option B, upload the release zip, then:
 
 ```bash
-unzip MusicBot-release.zip
-cd MusicBot
+unzip Kleebot-release.zip
+cd Kleebot
 ```
 
 ## 3. Configure Secrets

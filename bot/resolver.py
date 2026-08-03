@@ -141,7 +141,7 @@ class Resolver:
             return query
 
         oembed_url = f"https://open.spotify.com/oembed?url={quote(query, safe='')}"
-        request = Request(oembed_url, headers={"User-Agent": "MusicBot/1.0"})
+        request = Request(oembed_url, headers={"User-Agent": "Kleebot/1.0"})
         with urlopen(request, timeout=10) as response:
             payload = json.loads(response.read().decode("utf-8"))
 
