@@ -1,0 +1,14 @@
+services:
+  musicbot:
+    build:
+      context: .
+    container_name: musicbot
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      - ./data:/app/data
+    dns:
+      - 1.1.1.1
+      - 8.8.8.8
+
