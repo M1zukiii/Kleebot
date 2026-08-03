@@ -7,7 +7,7 @@ from discord import app_commands
 from discord.ext import commands
 from dotenv import load_dotenv
 
-from .fortune import FortuneResult, draw_daily_fortune, draw_second_fortune, fortune_message, luck_color, luck_summary
+from .fortune import FortuneResult, draw_daily_fortune, draw_second_fortune, fortune_message, fortune_text, luck_color, luck_summary
 from .player import GuildPlayer
 from .resolver import Resolver
 
@@ -301,10 +301,10 @@ def build_fortune_embed(
     draw: FortuneResult,
 ) -> discord.Embed:
     fortune = draw.fortune
-    description = fortune.text
+    description = fortune_text(draw)
     if draw.used_second_chance and draw.first_fortune:
         description = (
-            f"{fortune.text}\n\n"
+            f"{fortune_text(draw)}\n\n"
             "Klee 给了你第二次机会。"
         )
     embed = discord.Embed(
