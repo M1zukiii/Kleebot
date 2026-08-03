@@ -40,6 +40,15 @@ FORTUNES = [
     Fortune("逆风行舟", "看起来今天很不走运呀。但至少你有一个好记忆力，Klee 甚至连这个都没有...", "少争输赢，多保状态。"),
 ]
 
+FORTUNE_TEXT_BY_LABEL = {
+    "非常不走运": "看起来今天很不走运呀。希望和Klee一起去去炸鱼的时候不要被琴团长抓住啦...",
+    "不太走运": "有一点点不幸运。Klee发现了四叶草！把好运分给你呀~",
+    "一般般": "嗯...不好不坏。要不要和Klee一起去试试妈妈最新研发的炸弹！",
+    "好运": "好运气！ 今天会是个适合炸鱼的好日子~",
+    "非常幸运": "哇，你也太幸运了！可以把好运分给Klee一点嘛~",
+    "极其幸运": "哇！Klee从未见过有人像你一样幸运！不愧是荣誉骑士呀！",
+}
+
 
 def draw_daily_fortune(user_id: int, guild_id: int | None = None, today: date | None = None) -> FortuneResult:
     seed = _base_seed(user_id=user_id, guild_id=guild_id, today=today)
@@ -70,8 +79,12 @@ def fortune_message(user_name: str, user_id: int, guild_id: int | None = None) -
     lines = [f"{user_name} 今日求签：{result.label} - {result.fortune.title}"]
     if result.used_second_chance and result.first_fortune:
         lines.append(f"第一签：~~{result.first_label} - {result.first_fortune.title}~~")
-    lines.extend([result.fortune.text, f"运势：{luck_summary(result)}"])
+    lines.extend([fortune_text(result), f"运势：{luck_summary(result)}"])
     return "\n".join(lines)
+
+
+def fortune_text(result: FortuneResult) -> str:
+    return FORTUNE_TEXT_BY_LABEL.get(result.label, result.fortune.text)
 
 
 def luck_summary(result: FortuneResult) -> str:
