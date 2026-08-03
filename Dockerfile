@@ -14,5 +14,6 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY bot ./bot
 COPY assets ./assets
+COPY help.txt .
 
 CMD ["python", "-m", "bot.main"]

@@ -42,6 +42,7 @@ docker compose logs -f kleebot
 - `/stop` - 停止播放，并清空当前队列。
 - `/leave` - 让 Kleebot 离开语音频道。
 - `/volume percent` - 设置音量，范围 1 到 100。
+- `/help` - 查看 Kleebot 的指令说明。
 - `/fortune` - 抽取今日幸运签。
 - `/求签` - 抽取今日幸运签。
 

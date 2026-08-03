@@ -38,11 +38,20 @@ intents.message_content = True
 bot = commands.Bot(command_prefix=PREFIX, intents=intents, help_command=None)
 resolver = Resolver()
 players: dict[int, GuildPlayer] = {}
-ASSETS_DIR = Path(__file__).resolve().parent.parent / "assets"
+BASE_DIR = Path(__file__).resolve().parent.parent
+ASSETS_DIR = BASE_DIR / "assets"
 DATA_DIR = Path("/app/data") if Path("/app").exists() else Path(__file__).resolve().parent.parent / "data"
+HELP_TEXT_FILE = Path(os.getenv("HELP_TEXT_FILE", str(BASE_DIR / "help.txt")))
 FORTUNE_SLIP_IMAGE = ASSETS_DIR / "fortune-slip.webp"
 KLEE_FOOTER_IMAGE = ASSETS_DIR / "klee-footer.jpg"
 fortune_cooldowns = FortuneCooldownStore(DATA_DIR / "fortune_cooldowns.json")
+
+DEFAULT_HELP_TEXT = """Kleebot 指令：
+`/play` 播放 YouTube / B站 / NicoNico / Spotify 链接，或直接搜索歌曲
+`/queue` 查看队列，`/skip` 跳过，`/pause` 暂停，`/resume` 继续
+`/stop` 停止并清空队列，`/leave` 离开语音频道，`/volume` 调整音量
+`/fortune` 或 `/求签` 抽取今日幸运签
+文字指令：`{PREFIX}play <链接或歌名>`、`{PREFIX}queue`、`{PREFIX}skip`、`{PREFIX}stop`、`{PREFIX}leave`、`{PREFIX}求签`"""
 
 
 def get_player(guild: discord.Guild) -> GuildPlayer:
@@ -53,11 +62,46 @@ def get_player(guild: discord.Guild) -> GuildPlayer:
     return player
 
 
+def load_help_text() -> str:
+    try:
+        text = HELP_TEXT_FILE.read_text(encoding="utf-8").strip()
+    except OSError:
+        text = DEFAULT_HELP_TEXT
+    return text.replace("{PREFIX}", PREFIX)
+
+
+def split_discord_message(text: str, limit: int = 1900) -> list[str]:
+    if len(text) <= limit:
+        return [text]
+
+    chunks: list[str] = []
+    current = ""
+    for line in text.splitlines(keepends=True):
+        if len(current) + len(line) > limit:
+            if current:
+                chunks.append(current.rstrip())
+                current = ""
+            while len(line) > limit:
+                chunks.append(line[:limit].rstrip())
+                line = line[limit:]
+        current += line
+    if current:
+        chunks.append(current.rstrip())
+    return chunks or [text[:limit]]
+
+
 async def respond(interaction: discord.Interaction, message: str) -> None:
     if interaction.response.is_done():
         await interaction.followup.send(message)
     else:
         await interaction.response.send_message(message)
+
+
+async def respond_help(interaction: discord.Interaction) -> None:
+    chunks = split_discord_message(load_help_text())
+    await respond(interaction, chunks[0])
+    for chunk in chunks[1:]:
+        await interaction.followup.send(chunk)
 
 
 async def respond_embed(
@@ -230,6 +274,11 @@ async def slash_volume(interaction: discord.Interaction, percent: app_commands.R
     await respond(interaction, f"Volume set to {percent}%.")
 
 
+@bot.tree.command(name="help", description="查看 Kleebot 的指令说明。")
+async def slash_help(interaction: discord.Interaction) -> None:
+    await respond_help(interaction)
+
+
 @bot.tree.command(name="fortune", description="抽取今日幸运签。")
 async def slash_fortune(interaction: discord.Interaction) -> None:
     await defer(interaction)
@@ -310,14 +359,8 @@ async def prefix_queue(ctx: commands.Context) -> None:
 
 @bot.command(name="help")
 async def prefix_help(ctx: commands.Context) -> None:
-    await ctx.send(
-        "Kleebot 指令：\n"
-        "`/play` 播放 YouTube / B站 / NicoNico / Spotify 链接，或直接搜索歌曲\n"
-        "`/queue` 查看队列，`/skip` 跳过，`/pause` 暂停，`/resume` 继续\n"
-        "`/stop` 停止并清空队列，`/leave` 离开语音频道，`/volume` 调整音量\n"
-        "`/fortune` 或 `/求签` 抽取今日幸运签\n"
-        f"文字指令：`{PREFIX}play <链接或歌名>`、`{PREFIX}queue`、`{PREFIX}skip`、`{PREFIX}stop`、`{PREFIX}leave`、`{PREFIX}求签`"
-    )
+    for chunk in split_discord_message(load_help_text()):
+        await ctx.send(chunk)
 
 
 @bot.command(name="qiuqian", aliases=["求签", "抽签", "fortune", "luck"])

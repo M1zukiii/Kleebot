@@ -1,0 +1,7 @@
+Kleebot 指令：
+`/play` 播放 YouTube / B站 / NicoNico / Spotify 链接，或直接搜索歌曲
+`/queue` 查看队列，`/skip` 跳过，`/pause` 暂停，`/resume` 继续
+`/stop` 停止并清空队列，`/leave` 离开语音频道，`/volume` 调整音量
+`/help` 查看这段指令说明
+`/fortune` 或 `/求签` 抽取今日幸运签
+文字指令：`{PREFIX}play <链接或歌名>`、`{PREFIX}queue`、`{PREFIX}skip`、`{PREFIX}stop`、`{PREFIX}leave`、`{PREFIX}求签`、`{PREFIX}help`
