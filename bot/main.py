@@ -59,16 +59,26 @@ async def on_ready() -> None:
             bot.tree.copy_global_to(guild=guild)
             synced = await bot.tree.sync(guild=guild)
             print(f"synced {len(synced)} command(s) to guild {GUILD_ID}", flush=True)
+            await clear_global_commands()
         elif bot.guilds:
             for guild in bot.guilds:
                 bot.tree.copy_global_to(guild=guild)
                 synced = await bot.tree.sync(guild=guild)
                 print(f"synced {len(synced)} command(s) to guild {guild.id}", flush=True)
+            await clear_global_commands()
         else:
             synced = await bot.tree.sync()
             print(f"synced {len(synced)} global command(s)", flush=True)
     except Exception as exc:
         print(f"slash sync failed: {exc}", flush=True)
+
+
+async def clear_global_commands() -> None:
+    if bot.application_id is None:
+        print("global command cleanup skipped: missing application id", flush=True)
+        return
+    await bot.http.bulk_upsert_global_commands(bot.application_id, [])
+    print("cleared global command(s)", flush=True)
 
 
 @bot.tree.error
