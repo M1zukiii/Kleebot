@@ -7,6 +7,7 @@ from discord import app_commands
 from discord.ext import commands
 from dotenv import load_dotenv
 
+from .fortune import draw_daily_fortune, fortune_message, luck_summary
 from .player import GuildPlayer
 from .resolver import Resolver
 
@@ -43,6 +44,13 @@ async def respond(interaction: discord.Interaction, message: str) -> None:
         await interaction.followup.send(message)
     else:
         await interaction.response.send_message(message)
+
+
+async def respond_embed(interaction: discord.Interaction, embed: discord.Embed) -> None:
+    if interaction.response.is_done():
+        await interaction.followup.send(embed=embed)
+    else:
+        await interaction.response.send_message(embed=embed)
 
 
 async def defer(interaction: discord.Interaction) -> None:
@@ -189,6 +197,20 @@ async def slash_volume(interaction: discord.Interaction, percent: app_commands.R
     await respond(interaction, f"Volume set to {percent}%.")
 
 
+@bot.tree.command(name="qiuqian", description="Draw today's fortune.")
+async def slash_qiuqian(interaction: discord.Interaction) -> None:
+    await defer(interaction)
+    print(f"qiuqian requested in {interaction.guild.id if interaction.guild else 'dm'}", flush=True)
+    await respond_embed(interaction, build_fortune_embed(interaction.user, interaction.guild))
+
+
+@bot.tree.command(name="求签", description="抽取今日签文。")
+async def slash_qiuqian_cn(interaction: discord.Interaction) -> None:
+    await defer(interaction)
+    print(f"求签 requested in {interaction.guild.id if interaction.guild else 'dm'}", flush=True)
+    await respond_embed(interaction, build_fortune_embed(interaction.user, interaction.guild))
+
+
 @bot.command(name="play", aliases=["p"])
 async def prefix_play(ctx: commands.Context, *, query: str) -> None:
     if ctx.guild is None:
@@ -240,9 +262,29 @@ async def prefix_queue(ctx: commands.Context) -> None:
 @bot.command(name="help")
 async def prefix_help(ctx: commands.Context) -> None:
     await ctx.send(
-        "Commands: /play, /skip, /stop, /pause, /resume, /queue, /leave, /volume\n"
+        "Commands: /play, /skip, /stop, /pause, /resume, /queue, /leave, /volume, /qiuqian, /求签\n"
         f"Text fallback: {PREFIX}play <url or search>, {PREFIX}skip, {PREFIX}stop, {PREFIX}queue, {PREFIX}leave"
     )
+
+
+@bot.command(name="qiuqian", aliases=["求签", "抽签", "fortune", "luck"])
+async def prefix_qiuqian(ctx: commands.Context) -> None:
+    await ctx.send(embed=build_fortune_embed(ctx.author, ctx.guild))
+
+
+def build_fortune_embed(user: discord.abc.User, guild: discord.Guild | None) -> discord.Embed:
+    draw = draw_daily_fortune(user_id=user.id, guild_id=guild.id if guild else None)
+    fortune = draw.fortune
+    embed = discord.Embed(
+        title=f"{user.display_name}的幸运签",
+        description=fortune.text,
+        color=fortune.color,
+    )
+    embed.add_field(name="运势", value=luck_summary(draw.luck_percent), inline=False)
+    embed.add_field(name="建议", value=fortune.advice, inline=False)
+    embed.set_thumbnail(url="https://static.wikia.nocookie.net/gensin-impact/images/5/5f/Item_Fortune_Slip.png")
+    embed.set_footer(text="爱一定来自不卜卢！", icon_url=user.display_avatar.url)
+    return embed
 
 
 class _ContextResponse:

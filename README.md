@@ -5,8 +5,9 @@ Self-hosted Discord music bot for YouTube, Bilibili, NicoNico, and Spotify track
 ## Features
 
 - Slash commands for play, queue, pause, resume, skip, stop, leave, and volume.
-- Prefix fallback commands for the basics: `!play`, `!skip`, `!stop`, `!queue`, `!leave`, and `!help`.
+- Prefix fallback commands for the basics: `!play`, `!skip`, `!stop`, `!queue`, `!leave`, `!求签`, and `!help`.
 - Per-server playback queue.
+- Daily fortune drawing with `/求签`, `/qiuqian`, or `!求签`.
 - URL playback and YouTube search through `yt-dlp`.
 - Spotify track links are resolved to song metadata, then played from a YouTube search result.
 - Optional cookies file for sites that require login.
@@ -32,6 +33,8 @@ docker compose up -d --build
 - `/stop`
 - `/leave`
 - `/volume percent`
+- `/qiuqian`
+- `/求签`
 
 Prefix examples:
 
@@ -39,6 +42,7 @@ Prefix examples:
 !play https://www.youtube.com/watch?v=...
 !play https://open.spotify.com/track/...
 !play never gonna give you up
+!求签
 !queue
 !skip
 ```
