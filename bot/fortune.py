@@ -1,7 +1,7 @@
 import hashlib
 import os
 import secrets
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from datetime import date
 
 
@@ -72,15 +72,6 @@ def draw_second_fortune(first: FortuneResult, user_id: int, guild_id: int | None
         first_luck_delta=first.luck_delta,
         first_label=first.label,
     )
-
-
-def draw_forced_reroll_fortune(user_id: int, guild_id: int | None = None) -> FortuneResult:
-    for _ in range(100):
-        result = draw_daily_fortune(user_id=user_id, guild_id=guild_id)
-        if result.luck_delta <= -10:
-            return replace(result, can_reroll=True)
-    fallback = _draw_from_seed(f"{secrets.token_hex(8)}:{guild_id or 'dm'}:{user_id}:forced-reroll")
-    return replace(fallback, luck_delta=-60.0, label="非常不走运", can_reroll=True)
 
 
 def fortune_message(user_name: str, user_id: int, guild_id: int | None = None) -> str:

@@ -10,7 +10,6 @@ from dotenv import load_dotenv
 from .fortune import (
     FortuneResult,
     draw_daily_fortune,
-    draw_forced_reroll_fortune,
     draw_second_fortune,
     fortune_message,
     fortune_text,
@@ -99,6 +98,17 @@ async def on_ready() -> None:
             print(f"synced {len(synced)} global command(s)", flush=True)
     except Exception as exc:
         print(f"slash sync failed: {exc}", flush=True)
+
+
+@bot.event
+async def on_message(message: discord.Message) -> None:
+    if message.author.bot:
+        return
+
+    if bot.user and bot.user in message.mentions:
+        await message.reply(f"{message.author.mention} 你的妈妈也是魔女吗敢这么和Klee说话。")
+
+    await bot.process_commands(message)
 
 
 async def clear_global_commands() -> None:
@@ -234,19 +244,6 @@ async def slash_qiuqian_cn(interaction: discord.Interaction) -> None:
     result = draw_daily_fortune(user_id=interaction.user.id, guild_id=interaction.guild.id if interaction.guild else None)
     embed = build_fortune_embed(interaction.user, interaction.guild, result)
     view = FortuneRerollView(interaction.user, interaction.guild, result) if result.can_reroll else None
-    await respond_embed(interaction, embed, fortune_files(), view)
-
-
-@bot.tree.command(name="foutune1", description="Test fortune reroll button.")
-async def slash_foutune1(interaction: discord.Interaction) -> None:
-    await defer(interaction)
-    print(f"foutune1 requested in {interaction.guild.id if interaction.guild else 'dm'}", flush=True)
-    result = draw_forced_reroll_fortune(
-        user_id=interaction.user.id,
-        guild_id=interaction.guild.id if interaction.guild else None,
-    )
-    embed = build_fortune_embed(interaction.user, interaction.guild, result)
-    view = FortuneRerollView(interaction.user, interaction.guild, result)
     await respond_embed(interaction, embed, fortune_files(), view)
 
 
