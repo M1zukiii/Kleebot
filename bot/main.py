@@ -275,12 +275,19 @@ async def prefix_qiuqian(ctx: commands.Context) -> None:
 def build_fortune_embed(user: discord.abc.User, guild: discord.Guild | None) -> discord.Embed:
     draw = draw_daily_fortune(user_id=user.id, guild_id=guild.id if guild else None)
     fortune = draw.fortune
+    description = fortune.text
+    if draw.used_second_chance and draw.first_fortune:
+        description = (
+            f"第一签：~~{draw.first_label} - {draw.first_fortune.title}~~\n"
+            f"~~{draw.first_fortune.text}~~\n\n"
+            f"第二次机会：{fortune.text}"
+        )
     embed = discord.Embed(
         title=f"{user.display_name}的幸运签",
-        description=fortune.text,
+        description=description,
         color=fortune.color,
     )
-    embed.add_field(name="运势", value=luck_summary(draw.luck_percent), inline=False)
+    embed.add_field(name="运势", value=luck_summary(draw), inline=False)
     embed.add_field(name="建议", value=fortune.advice, inline=False)
     embed.set_thumbnail(url="https://static.wikia.nocookie.net/gensin-impact/images/5/5f/Item_Fortune_Slip.png")
     embed.set_footer(text="爱一定来自不卜卢！", icon_url=user.display_avatar.url)

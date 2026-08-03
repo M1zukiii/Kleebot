@@ -1,71 +1,117 @@
 import hashlib
+import os
+import secrets
 from dataclasses import dataclass
 from datetime import date
 
 
 @dataclass(frozen=True)
 class Fortune:
-    rank: str
     title: str
     text: str
     advice: str
     color: int
 
 
+@dataclass(frozen=True)
+class FortuneResult:
+    fortune: Fortune
+    luck_delta: float
+    label: str
+    first_fortune: Fortune | None = None
+    first_luck_delta: float | None = None
+    first_label: str | None = None
+
+    @property
+    def used_second_chance(self) -> bool:
+        return self.first_fortune is not None
+
+
 FORTUNES = [
-    Fortune("大吉", "风起云开", "看起来今天很走运呀。机会会自己敲门，但你也要记得开门。", "把最想推进的一件事先做掉。", 0xF5B642),
-    Fortune("中吉", "稳步向前", "今天的运气不吵闹，但很可靠，适合补进度和整理计划。", "少开新坑，多收尾。", 0x74C69D),
-    Fortune("小吉", "微光可循", "会有一点小惊喜，也可能是别人一句刚好的提醒。", "留意消息，不要错过顺手的机会。", 0x80C7FF),
-    Fortune("吉", "清水见月", "状态清醒，适合做需要判断力的选择。", "相信第一轮认真思考后的答案。", 0x9BD48B),
-    Fortune("末吉", "慢热之日", "事情会慢一点，但不是坏事，只是需要耐心。", "别急着判定失败，再等一等。", 0xC8B6FF),
-    Fortune("半吉", "云边有路", "今天适合试探，不适合一次压太多筹码。", "先做一个小版本。", 0x95D5B2),
-    Fortune("平", "风平浪静", "没有强烈波动，适合把生活调回舒服的节奏。", "给自己留一点空白时间。", 0xADB5BD),
-    Fortune("小凶", "细雨沾衣", "容易被小事打断，情绪和注意力都要省着用。", "重要决定放到晚一点。", 0xFFD166),
-    Fortune("凶", "雾里看花", "信息可能不完整，越急越容易判断偏。", "先确认事实，再行动。", 0xEF476F),
-    Fortune("大凶", "逆风行舟", "看起来今天很不走运呀。但至少你有一个好记忆力，Klee 甚至连这个都没有...", "少争输赢，多保状态。", 0x6C757D),
+    Fortune("风起云开", "看起来今天很走运呀。机会会自己敲门，但你也要记得开门。", "把最想推进的一件事先做掉。", 0xF5B642),
+    Fortune("稳步向前", "今天的运气不吵闹，但很可靠，适合补进度和整理计划。", "少开新坑，多收尾。", 0x74C69D),
+    Fortune("微光可循", "会有一点小惊喜，也可能是别人一句刚好的提醒。", "留意消息，不要错过顺手的机会。", 0x80C7FF),
+    Fortune("清水见月", "状态清醒，适合做需要判断力的选择。", "相信第一轮认真思考后的答案。", 0x9BD48B),
+    Fortune("慢热之日", "事情会慢一点，但不是坏事，只是需要耐心。", "别急着判定失败，再等一等。", 0xC8B6FF),
+    Fortune("云边有路", "今天适合试探，不适合一次压太多筹码。", "先做一个小版本。", 0x95D5B2),
+    Fortune("风平浪静", "没有强烈波动，适合把生活调回舒服的节奏。", "给自己留一点空白时间。", 0xADB5BD),
+    Fortune("细雨沾衣", "容易被小事打断，情绪和注意力都要省着用。", "重要决定放到晚一点。", 0xFFD166),
+    Fortune("雾里看花", "信息可能不完整，越急越容易判断偏。", "先确认事实，再行动。", 0xEF476F),
+    Fortune("逆风行舟", "看起来今天很不走运呀。但至少你有一个好记忆力，Klee 甚至连这个都没有...", "少争输赢，多保状态。", 0x6C757D),
 ]
 
 
-@dataclass(frozen=True)
-class FortuneDraw:
-    fortune: Fortune
-    luck_percent: float
-
-
-def draw_daily_fortune(user_id: int, guild_id: int | None = None, today: date | None = None) -> FortuneDraw:
+def draw_daily_fortune(user_id: int, guild_id: int | None = None, today: date | None = None) -> FortuneResult:
     current_date = today or date.today()
-    seed = f"{current_date.isoformat()}:{guild_id or 'dm'}:{user_id}".encode("utf-8")
-    digest = hashlib.sha256(seed).digest()
-    index = int.from_bytes(digest[:4], "big") % len(FORTUNES)
-    luck_percent = round(int.from_bytes(digest[4:8], "big") / 0xFFFFFFFF * 100, 3)
-    return FortuneDraw(fortune=FORTUNES[index], luck_percent=luck_percent)
+    if os.getenv("FORTUNE_DAILY_LOCK", "false").lower() in {"1", "true", "yes", "on"}:
+        nonce = current_date.isoformat()
+    else:
+        nonce = secrets.token_hex(8)
+    seed = f"{nonce}:{guild_id or 'dm'}:{user_id}"
+    first = _draw_from_seed(f"{seed}:first")
+
+    if first.luck_delta < -10 and _second_chance(seed):
+        second = _draw_from_seed(f"{seed}:second")
+        return FortuneResult(
+            fortune=second.fortune,
+            luck_delta=second.luck_delta,
+            label=second.label,
+            first_fortune=first.fortune,
+            first_luck_delta=first.luck_delta,
+            first_label=first.label,
+        )
+
+    return first
 
 
 def fortune_message(user_name: str, user_id: int, guild_id: int | None = None) -> str:
-    draw = draw_daily_fortune(user_id=user_id, guild_id=guild_id)
-    fortune = draw.fortune
-    return (
-        f"{user_name} 今日求签：{fortune.rank} - {fortune.title}\n"
-        f"{fortune.text}\n"
-        f"运势：{draw.luck_percent:.3f}%\n"
-        f"建议：{fortune.advice}"
-    )
+    result = draw_daily_fortune(user_id=user_id, guild_id=guild_id)
+    lines = [f"{user_name} 今日求签：{result.label} - {result.fortune.title}"]
+    if result.used_second_chance and result.first_fortune:
+        lines.append(f"第一签：~~{result.first_label} - {result.first_fortune.title}~~")
+    lines.extend([result.fortune.text, f"运势：{luck_summary(result)}", f"建议：{result.fortune.advice}"])
+    return "\n".join(lines)
 
 
-def luck_summary(luck_percent: float) -> str:
-    delta = abs(luck_percent - 50)
-    if luck_percent >= 85:
-        label = "非常幸运"
-    elif luck_percent >= 65:
-        label = "比较幸运"
-    elif luck_percent >= 50:
-        label = "稍微幸运"
-    elif luck_percent >= 35:
-        label = "稍微不走运"
-    elif luck_percent >= 15:
-        label = "比较不走运"
-    else:
-        label = "非常不走运"
+def luck_summary(result: FortuneResult) -> str:
+    text = _delta_text(result.luck_delta, result.label)
+    if not result.used_second_chance:
+        return text
+    first_text = _delta_text(result.first_luck_delta or 0, result.first_label or "不太走运")
+    return f"~~{first_text}~~\n第二次机会：{text}"
 
-    direction = "幸运" if luck_percent >= 50 else "不走运"
-    return f"{label}（比平均值{direction}了 {delta:.3f}%）"
+
+def _draw_from_seed(seed: str) -> FortuneResult:
+    digest = hashlib.sha256(seed.encode("utf-8")).digest()
+    fortune = FORTUNES[int.from_bytes(digest[:4], "big") % len(FORTUNES)]
+    luck_delta = _signed_percent(digest[4:8])
+    return FortuneResult(fortune=fortune, luck_delta=luck_delta, label=_luck_label(luck_delta))
+
+
+def _signed_percent(raw: bytes) -> float:
+    value = int.from_bytes(raw, "big") / 0xFFFFFFFF
+    return round((value * 200) - 100, 3)
+
+
+def _second_chance(seed: str) -> bool:
+    digest = hashlib.sha256(f"{seed}:second-chance".encode("utf-8")).digest()
+    return int.from_bytes(digest[:4], "big") / 0xFFFFFFFF < 0.5
+
+
+def _luck_label(luck_delta: float) -> str:
+    if luck_delta >= 60:
+        return "非常幸运"
+    if luck_delta >= 10:
+        return "好运"
+    if luck_delta > -10:
+        return "一般般"
+    if luck_delta > -60:
+        return "不太走运"
+    return "非常不走运"
+
+
+def _delta_text(luck_delta: float, label: str) -> str:
+    if -10 < luck_delta < 10:
+        return f"{label}（和平均值差不多）"
+    direction = "幸运" if luck_delta >= 10 else "不走运"
+    return f"{label}（比平均值{direction}了 {abs(luck_delta):.3f}%）"
