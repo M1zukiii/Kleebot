@@ -99,6 +99,7 @@ class GuildPlayer:
     def clear(self) -> int:
         count = len(self.queue)
         self.queue.clear()
+        self.current = None
         return count
 
     def queue_text(self) -> str:

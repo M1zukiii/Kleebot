@@ -45,6 +45,11 @@ async def respond(interaction: discord.Interaction, message: str) -> None:
         await interaction.response.send_message(message)
 
 
+async def defer(interaction: discord.Interaction) -> None:
+    if not interaction.response.is_done():
+        await interaction.response.defer(thinking=True)
+
+
 @bot.event
 async def on_ready() -> None:
     print(f"ready: {bot.user} in {len(bot.guilds)} guild(s)", flush=True)
@@ -66,10 +71,19 @@ async def on_ready() -> None:
         print(f"slash sync failed: {exc}", flush=True)
 
 
+@bot.tree.error
+async def on_app_command_error(interaction: discord.Interaction, error: app_commands.AppCommandError) -> None:
+    print(f"slash command error in {interaction.command}: {error}", flush=True)
+    try:
+        await respond(interaction, f"Command failed: {error}")
+    except Exception as exc:
+        print(f"failed to report slash error: {exc}", flush=True)
+
+
 @bot.tree.command(name="play", description="Play a YouTube, Bilibili, NicoNico URL or search query.")
 @app_commands.describe(query="URL or search text")
 async def slash_play(interaction: discord.Interaction, query: str) -> None:
-    await interaction.response.defer(thinking=True)
+    await defer(interaction)
     try:
         if interaction.guild is None:
             raise RuntimeError("Use this in a server.")
@@ -82,6 +96,8 @@ async def slash_play(interaction: discord.Interaction, query: str) -> None:
 
 @bot.tree.command(name="skip", description="Skip the current track.")
 async def slash_skip(interaction: discord.Interaction) -> None:
+    await defer(interaction)
+    print(f"skip requested in {interaction.guild.id if interaction.guild else 'dm'}", flush=True)
     if interaction.guild and get_player(interaction.guild).skip(interaction.guild):
         await respond(interaction, "Skipped.")
     else:
@@ -90,6 +106,8 @@ async def slash_skip(interaction: discord.Interaction) -> None:
 
 @bot.tree.command(name="stop", description="Stop playback and clear the queue.")
 async def slash_stop(interaction: discord.Interaction) -> None:
+    await defer(interaction)
+    print(f"stop requested in {interaction.guild.id if interaction.guild else 'dm'}", flush=True)
     if interaction.guild is None:
         await respond(interaction, "Use this in a server.")
         return
@@ -102,6 +120,8 @@ async def slash_stop(interaction: discord.Interaction) -> None:
 
 @bot.tree.command(name="leave", description="Leave the voice channel.")
 async def slash_leave(interaction: discord.Interaction) -> None:
+    await defer(interaction)
+    print(f"leave requested in {interaction.guild.id if interaction.guild else 'dm'}", flush=True)
     if interaction.guild and interaction.guild.voice_client:
         await interaction.guild.voice_client.disconnect()
         players.pop(interaction.guild.id, None)
@@ -112,6 +132,8 @@ async def slash_leave(interaction: discord.Interaction) -> None:
 
 @bot.tree.command(name="queue", description="Show the music queue.")
 async def slash_queue(interaction: discord.Interaction) -> None:
+    await defer(interaction)
+    print(f"queue requested in {interaction.guild.id if interaction.guild else 'dm'}", flush=True)
     if interaction.guild is None:
         await respond(interaction, "Use this in a server.")
         return
@@ -120,6 +142,8 @@ async def slash_queue(interaction: discord.Interaction) -> None:
 
 @bot.tree.command(name="pause", description="Pause playback.")
 async def slash_pause(interaction: discord.Interaction) -> None:
+    await defer(interaction)
+    print(f"pause requested in {interaction.guild.id if interaction.guild else 'dm'}", flush=True)
     vc = interaction.guild.voice_client if interaction.guild else None
     if vc and vc.is_playing():
         vc.pause()
@@ -130,6 +154,8 @@ async def slash_pause(interaction: discord.Interaction) -> None:
 
 @bot.tree.command(name="resume", description="Resume playback.")
 async def slash_resume(interaction: discord.Interaction) -> None:
+    await defer(interaction)
+    print(f"resume requested in {interaction.guild.id if interaction.guild else 'dm'}", flush=True)
     vc = interaction.guild.voice_client if interaction.guild else None
     if vc and vc.is_paused():
         vc.resume()
@@ -140,6 +166,8 @@ async def slash_resume(interaction: discord.Interaction) -> None:
 
 @bot.tree.command(name="volume", description="Set playback volume from 1 to 100.")
 async def slash_volume(interaction: discord.Interaction, percent: app_commands.Range[int, 1, 100]) -> None:
+    await defer(interaction)
+    print(f"volume requested in {interaction.guild.id if interaction.guild else 'dm'}: {percent}", flush=True)
     if interaction.guild is None:
         await respond(interaction, "Use this in a server.")
         return
