@@ -311,6 +311,12 @@ def build_fortune_embed(
         color=luck_color(draw.label),
     )
     embed.add_field(name="运势", value=luck_summary(draw), inline=False)
+    if draw.can_reroll:
+        embed.add_field(
+            name="第二次机会",
+            value="当求签结果是不幸运的时候，不要气馁！\nKlee会有10% - 39.6%的概率给予你第二次机会 ~",
+            inline=False,
+        )
     if draw.used_second_chance and draw.first_fortune:
         embed.add_field(
             name="上一只签",
