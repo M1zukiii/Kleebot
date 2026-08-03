@@ -109,6 +109,8 @@ def _second_chance(seed: str) -> bool:
 
 
 def _luck_label(luck_delta: float) -> str:
+    if luck_delta >= 98.5:
+        return "极其幸运"
     if luck_delta >= 60:
         return "非常幸运"
     if luck_delta >= 10:
@@ -122,6 +124,7 @@ def _luck_label(luck_delta: float) -> str:
 
 def luck_color(label: str) -> int:
     colors = {
+        "极其幸运": 0xFFE066,
         "非常幸运": 0xF5B642,
         "好运": 0x57CC99,
         "一般般": 0xADB5BD,

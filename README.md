@@ -10,6 +10,7 @@ Self-hosted Discord music bot for YouTube, Bilibili, NicoNico, and Spotify track
 - Daily fortune drawing with `/求签`, `/fortune`, or `!求签`.
 - Bad fortune has a 50% chance to redraw, with the first result crossed out.
 - Testing default allows unlimited redraws. Set `FORTUNE_DAILY_LOCK=true` to make each user's fortune deterministic for the day.
+- Fortune tiers are based on luck compared with the average, with `98.5%+` as an extra rare top tier.
 - URL playback and YouTube search through `yt-dlp`.
 - Spotify track links are resolved to song metadata, then played from a YouTube search result.
 - Optional cookies file for sites that require login.
