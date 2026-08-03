@@ -175,9 +175,7 @@ async def on_app_command_error(interaction: discord.Interaction, error: app_comm
         print(f"failed to report slash error: {exc}", flush=True)
 
 
-@bot.tree.command(name="play", description="Play a YouTube, Bilibili, NicoNico, Spotify link, or search query.")
-@app_commands.describe(query="Song name, search text, or a YouTube, Bilibili, NicoNico, Spotify link")
-async def slash_play(interaction: discord.Interaction, query: str) -> None:
+async def handle_play(interaction: discord.Interaction, query: str) -> None:
     await defer(interaction)
     try:
         if interaction.guild is None:
@@ -189,14 +187,7 @@ async def slash_play(interaction: discord.Interaction, query: str) -> None:
         await interaction.followup.send(f"Could not play that: {exc}")
 
 
-@bot.tree.command(name="播放", description="播放 YouTube / B站 / NicoNico / Spotify 链接，或直接搜索歌曲。")
-@app_commands.describe(query="歌曲名、搜索词，或 YouTube / B站 / NicoNico / Spotify 链接")
-async def slash_play_cn(interaction: discord.Interaction, query: str) -> None:
-    await slash_play(interaction, query)
-
-
-@bot.tree.command(name="skip", description="Skip the current track.")
-async def slash_skip(interaction: discord.Interaction) -> None:
+async def handle_skip(interaction: discord.Interaction) -> None:
     await defer(interaction)
     print(f"skip requested in {interaction.guild.id if interaction.guild else 'dm'}", flush=True)
     if interaction.guild and get_player(interaction.guild).skip(interaction.guild):
@@ -205,13 +196,7 @@ async def slash_skip(interaction: discord.Interaction) -> None:
         await respond(interaction, "Nothing is playing.")
 
 
-@bot.tree.command(name="跳过", description="跳过当前正在播放的歌曲。")
-async def slash_skip_cn(interaction: discord.Interaction) -> None:
-    await slash_skip(interaction)
-
-
-@bot.tree.command(name="stop", description="Stop playback and clear the queue.")
-async def slash_stop(interaction: discord.Interaction) -> None:
+async def handle_stop(interaction: discord.Interaction) -> None:
     await defer(interaction)
     print(f"stop requested in {interaction.guild.id if interaction.guild else 'dm'}", flush=True)
     if interaction.guild is None:
@@ -224,13 +209,7 @@ async def slash_stop(interaction: discord.Interaction) -> None:
     await respond(interaction, "Stopped and cleared queue.")
 
 
-@bot.tree.command(name="停止", description="停止播放，并清空当前队列。")
-async def slash_stop_cn(interaction: discord.Interaction) -> None:
-    await slash_stop(interaction)
-
-
-@bot.tree.command(name="join", description="Join your current voice channel.")
-async def slash_join(interaction: discord.Interaction) -> None:
+async def handle_join(interaction: discord.Interaction) -> None:
     await defer(interaction)
     print(f"join requested in {interaction.guild.id if interaction.guild else 'dm'}", flush=True)
     if interaction.guild is None:
@@ -244,13 +223,7 @@ async def slash_join(interaction: discord.Interaction) -> None:
     await respond(interaction, f"Joined {voice_client.channel.mention}.")
 
 
-@bot.tree.command(name="加入", description="让 Kleebot 加入你所在的语音频道。")
-async def slash_join_cn(interaction: discord.Interaction) -> None:
-    await slash_join(interaction)
-
-
-@bot.tree.command(name="leave", description="Leave the voice channel.")
-async def slash_leave(interaction: discord.Interaction) -> None:
+async def handle_leave(interaction: discord.Interaction) -> None:
     await defer(interaction)
     print(f"leave requested in {interaction.guild.id if interaction.guild else 'dm'}", flush=True)
     if interaction.guild and interaction.guild.voice_client:
@@ -261,13 +234,7 @@ async def slash_leave(interaction: discord.Interaction) -> None:
         await respond(interaction, "I am not in a voice channel.")
 
 
-@bot.tree.command(name="离开", description="让 Kleebot 离开语音频道。")
-async def slash_leave_cn(interaction: discord.Interaction) -> None:
-    await slash_leave(interaction)
-
-
-@bot.tree.command(name="queue", description="Show the current music queue.")
-async def slash_queue(interaction: discord.Interaction) -> None:
+async def handle_queue(interaction: discord.Interaction) -> None:
     await defer(interaction)
     print(f"queue requested in {interaction.guild.id if interaction.guild else 'dm'}", flush=True)
     if interaction.guild is None:
@@ -276,13 +243,7 @@ async def slash_queue(interaction: discord.Interaction) -> None:
     await respond(interaction, get_player(interaction.guild).queue_text())
 
 
-@bot.tree.command(name="队列", description="查看当前播放队列。")
-async def slash_queue_cn(interaction: discord.Interaction) -> None:
-    await slash_queue(interaction)
-
-
-@bot.tree.command(name="pause", description="Pause playback.")
-async def slash_pause(interaction: discord.Interaction) -> None:
+async def handle_pause(interaction: discord.Interaction) -> None:
     await defer(interaction)
     print(f"pause requested in {interaction.guild.id if interaction.guild else 'dm'}", flush=True)
     vc = interaction.guild.voice_client if interaction.guild else None
@@ -293,13 +254,7 @@ async def slash_pause(interaction: discord.Interaction) -> None:
         await respond(interaction, "Nothing is playing.")
 
 
-@bot.tree.command(name="暂停", description="暂停当前播放。")
-async def slash_pause_cn(interaction: discord.Interaction) -> None:
-    await slash_pause(interaction)
-
-
-@bot.tree.command(name="resume", description="Resume playback.")
-async def slash_resume(interaction: discord.Interaction) -> None:
+async def handle_resume(interaction: discord.Interaction) -> None:
     await defer(interaction)
     print(f"resume requested in {interaction.guild.id if interaction.guild else 'dm'}", flush=True)
     vc = interaction.guild.voice_client if interaction.guild else None
@@ -310,13 +265,7 @@ async def slash_resume(interaction: discord.Interaction) -> None:
         await respond(interaction, "Nothing is paused.")
 
 
-@bot.tree.command(name="继续", description="继续播放暂停中的歌曲。")
-async def slash_resume_cn(interaction: discord.Interaction) -> None:
-    await slash_resume(interaction)
-
-
-@bot.tree.command(name="volume", description="Set playback volume from 1 to 100.")
-async def slash_volume(interaction: discord.Interaction, percent: app_commands.Range[int, 1, 100]) -> None:
+async def handle_volume(interaction: discord.Interaction, percent: int) -> None:
     await defer(interaction)
     print(f"volume requested in {interaction.guild.id if interaction.guild else 'dm'}: {percent}", flush=True)
     if interaction.guild is None:
@@ -330,9 +279,96 @@ async def slash_volume(interaction: discord.Interaction, percent: app_commands.R
     await respond(interaction, f"Volume set to {percent}%.")
 
 
+@bot.tree.command(name="play", description="Play a YouTube, Bilibili, NicoNico, Spotify link, or search query.")
+@app_commands.describe(query="Song name, search text, or a YouTube, Bilibili, NicoNico, Spotify link")
+async def slash_play(interaction: discord.Interaction, query: str) -> None:
+    await handle_play(interaction, query)
+
+
+@bot.tree.command(name="播放", description="播放 YouTube / B站 / NicoNico / Spotify 链接，或直接搜索歌曲。")
+@app_commands.describe(query="歌曲名、搜索词，或 YouTube / B站 / NicoNico / Spotify 链接")
+async def slash_play_cn(interaction: discord.Interaction, query: str) -> None:
+    await handle_play(interaction, query)
+
+
+@bot.tree.command(name="skip", description="Skip the current track.")
+async def slash_skip(interaction: discord.Interaction) -> None:
+    await handle_skip(interaction)
+
+
+@bot.tree.command(name="跳过", description="跳过当前正在播放的歌曲。")
+async def slash_skip_cn(interaction: discord.Interaction) -> None:
+    await handle_skip(interaction)
+
+
+@bot.tree.command(name="stop", description="Stop playback and clear the queue.")
+async def slash_stop(interaction: discord.Interaction) -> None:
+    await handle_stop(interaction)
+
+
+@bot.tree.command(name="停止", description="停止播放，并清空当前队列。")
+async def slash_stop_cn(interaction: discord.Interaction) -> None:
+    await handle_stop(interaction)
+
+
+@bot.tree.command(name="join", description="Join your current voice channel.")
+async def slash_join(interaction: discord.Interaction) -> None:
+    await handle_join(interaction)
+
+
+@bot.tree.command(name="加入", description="让 Kleebot 加入你所在的语音频道。")
+async def slash_join_cn(interaction: discord.Interaction) -> None:
+    await handle_join(interaction)
+
+
+@bot.tree.command(name="leave", description="Leave the voice channel.")
+async def slash_leave(interaction: discord.Interaction) -> None:
+    await handle_leave(interaction)
+
+
+@bot.tree.command(name="离开", description="让 Kleebot 离开语音频道。")
+async def slash_leave_cn(interaction: discord.Interaction) -> None:
+    await handle_leave(interaction)
+
+
+@bot.tree.command(name="queue", description="Show the current music queue.")
+async def slash_queue(interaction: discord.Interaction) -> None:
+    await handle_queue(interaction)
+
+
+@bot.tree.command(name="队列", description="查看当前播放队列。")
+async def slash_queue_cn(interaction: discord.Interaction) -> None:
+    await handle_queue(interaction)
+
+
+@bot.tree.command(name="pause", description="Pause playback.")
+async def slash_pause(interaction: discord.Interaction) -> None:
+    await handle_pause(interaction)
+
+
+@bot.tree.command(name="暂停", description="暂停当前播放。")
+async def slash_pause_cn(interaction: discord.Interaction) -> None:
+    await handle_pause(interaction)
+
+
+@bot.tree.command(name="resume", description="Resume playback.")
+async def slash_resume(interaction: discord.Interaction) -> None:
+    await handle_resume(interaction)
+
+
+@bot.tree.command(name="继续", description="继续播放暂停中的歌曲。")
+async def slash_resume_cn(interaction: discord.Interaction) -> None:
+    await handle_resume(interaction)
+
+
+@bot.tree.command(name="volume", description="Set playback volume from 1 to 100.")
+async def slash_volume(interaction: discord.Interaction, percent: app_commands.Range[int, 1, 100]) -> None:
+    await handle_volume(interaction, percent)
+
+
 @bot.tree.command(name="音量", description="设置音量，范围 1 到 100。")
 async def slash_volume_cn(interaction: discord.Interaction, percent: app_commands.Range[int, 1, 100]) -> None:
-    await slash_volume(interaction, percent)
+    await handle_volume(interaction, percent)
 
 
 @bot.tree.command(name="help", description="Show Kleebot command help.")
