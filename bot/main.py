@@ -7,7 +7,7 @@ from discord import app_commands
 from discord.ext import commands
 from dotenv import load_dotenv
 
-from .fortune import draw_daily_fortune, fortune_message, luck_summary
+from .fortune import draw_daily_fortune, fortune_message, luck_color, luck_summary
 from .player import GuildPlayer
 from .resolver import Resolver
 
@@ -285,7 +285,7 @@ def build_fortune_embed(user: discord.abc.User, guild: discord.Guild | None) -> 
     embed = discord.Embed(
         title=f"{user.display_name}的幸运签",
         description=description,
-        color=fortune.color,
+        color=luck_color(draw.label),
     )
     embed.add_field(name="运势", value=luck_summary(draw), inline=False)
     embed.add_field(name="建议", value=fortune.advice, inline=False)
