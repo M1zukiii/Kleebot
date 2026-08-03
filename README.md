@@ -1,6 +1,6 @@
 # MusicBot
 
-Self-hosted Discord music bot for YouTube, Bilibili, and NicoNico. It uses `discord.py`, `yt-dlp`, and `ffmpeg`, and is designed to run with Docker Compose.
+Self-hosted Discord music bot for YouTube, Bilibili, NicoNico, and Spotify track links. It uses `discord.py`, `yt-dlp`, and `ffmpeg`, and is designed to run with Docker Compose.
 
 ## Features
 
@@ -8,6 +8,7 @@ Self-hosted Discord music bot for YouTube, Bilibili, and NicoNico. It uses `disc
 - Prefix fallback commands for the basics: `!play`, `!skip`, `!stop`, `!queue`, `!leave`, and `!help`.
 - Per-server playback queue.
 - URL playback and YouTube search through `yt-dlp`.
+- Spotify track links are resolved to song metadata, then played from a YouTube search result.
 - Optional cookies file for sites that require login.
 
 ## Setup
@@ -36,6 +37,7 @@ Prefix examples:
 
 ```text
 !play https://www.youtube.com/watch?v=...
+!play https://open.spotify.com/track/...
 !play never gonna give you up
 !queue
 !skip
@@ -44,4 +46,3 @@ Prefix examples:
 ## Cookies
 
 If a source needs account cookies, export them as Netscape-format cookies and save them to `data/cookies.txt`. The Compose file mounts `./data` to `/app/data`.
-

@@ -1,7 +1,11 @@
 import asyncio
+import json
 import os
+import re
 from dataclasses import dataclass
 from typing import Any
+from urllib.parse import quote, urlparse
+from urllib.request import Request, urlopen
 
 import yt_dlp
 
@@ -25,6 +29,8 @@ class Resolver:
         return await loop.run_in_executor(None, self._resolve_sync, query, requester)
 
     def _resolve_sync(self, query: str, requester: str) -> Track:
+        original_query = query
+        query = self._spotify_track_query(query)
         target = query if self._looks_like_url(query) else f"ytsearch1:{query}"
         options: dict[str, Any] = {
             "format": "bestaudio/best",
@@ -54,12 +60,38 @@ class Resolver:
 
         return Track(
             title=data.get("title") or "Untitled",
-            webpage_url=data.get("webpage_url") or query,
+            webpage_url=data.get("webpage_url") or original_query,
             stream_url=stream_url,
             duration=data.get("duration"),
             requester=requester,
             http_headers=data.get("http_headers") or {},
         )
+
+    def _spotify_track_query(self, query: str) -> str:
+        if not self._is_spotify_track_url(query):
+            return query
+
+        oembed_url = f"https://open.spotify.com/oembed?url={quote(query, safe='')}"
+        request = Request(oembed_url, headers={"User-Agent": "MusicBot/1.0"})
+        with urlopen(request, timeout=10) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+
+        title = payload.get("title")
+        if not title:
+            raise RuntimeError("Could not read Spotify track metadata.")
+
+        return f"{self._clean_spotify_title(title)} audio"
+
+    @staticmethod
+    def _is_spotify_track_url(value: str) -> bool:
+        if not Resolver._looks_like_url(value):
+            return False
+        parsed = urlparse(value)
+        return parsed.netloc.endswith("spotify.com") and re.match(r"^/track/[^/]+", parsed.path) is not None
+
+    @staticmethod
+    def _clean_spotify_title(title: str) -> str:
+        return re.sub(r"\s+", " ", title.replace(" - song and lyrics by ", " by ")).strip()
 
     @staticmethod
     def _looks_like_url(value: str) -> bool:
