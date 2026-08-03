@@ -1,4 +1,5 @@
 import asyncio
+import os
 from collections import deque
 from dataclasses import dataclass, field
 
@@ -61,9 +62,10 @@ class GuildPlayer:
             return
 
         self.current = self.queue.popleft()
-        before_options = self._ffmpeg_before_options(self.current)
+        played_track = self.current
+        before_options = self._ffmpeg_before_options(played_track)
         source = discord.FFmpegPCMAudio(
-            self.current.stream_url,
+            played_track.stream_url,
             before_options=before_options,
             options=FFMPEG_OPTIONS,
         )
@@ -72,6 +74,7 @@ class GuildPlayer:
         def after(error: Exception | None) -> None:
             if error:
                 print(f"playback error: {error}", flush=True)
+            self._cleanup_track(played_track)
             fut = asyncio.run_coroutine_threadsafe(self._play_next(voice_client), self.bot.loop)
             try:
                 fut.result()
@@ -81,6 +84,8 @@ class GuildPlayer:
         voice_client.play(audio, after=after)
 
     def _ffmpeg_before_options(self, track: Track) -> str:
+        if track.local_path:
+            return ""
         headers = {
             "User-Agent": DEFAULT_USER_AGENT,
             "Referer": track.webpage_url,
@@ -90,6 +95,18 @@ class GuildPlayer:
             headers["Cookie"] = track.cookies
         header_lines = "".join(f"{key}: {value}\r\n" for key, value in headers.items() if value)
         return f'{FFMPEG_BEFORE_OPTIONS} -headers "{header_lines}"'
+
+    @staticmethod
+    def _cleanup_track(track: Track) -> None:
+        if not track.local_path:
+            return
+        try:
+            os.remove(track.local_path)
+            print(f"removed temp audio file: {track.local_path}", flush=True)
+        except FileNotFoundError:
+            pass
+        except OSError as exc:
+            print(f"failed to remove temp audio file {track.local_path}: {exc}", flush=True)
 
     def skip(self, guild: discord.Guild) -> bool:
         voice_client = guild.voice_client

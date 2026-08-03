@@ -2,7 +2,9 @@ import asyncio
 import json
 import os
 import re
+import uuid
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 from urllib.parse import quote, urlparse
 from urllib.request import Request, urlopen
@@ -20,6 +22,7 @@ class Track:
     requester: str
     http_headers: dict[str, str]
     cookies: str | None = None
+    local_path: str | None = None
 
 
 class Resolver:
@@ -34,6 +37,7 @@ class Resolver:
         original_query = query
         query = self._normalize_query(query)
         target = query if self._looks_like_url(query) else f"ytsearch1:{query}"
+        is_niconico = self._is_niconico_query(query)
         options: dict[str, Any] = {
             "format": "bestaudio/best",
             "noplaylist": True,
@@ -46,10 +50,12 @@ class Resolver:
             options["cookiefile"] = self.cookies
 
         try:
+            if is_niconico:
+                return self._resolve_niconico_sync(target, original_query, requester, options)
             with yt_dlp.YoutubeDL(options) as ydl:
                 data = ydl.extract_info(target, download=False)
         except DownloadError as exc:
-            if self._is_niconico_query(query):
+            if is_niconico:
                 raise RuntimeError(
                     "NicoNico could not be resolved. Some Nico videos require login cookies. "
                     "Export your NicoNico cookies to data/cookies.txt and try again."
@@ -75,8 +81,60 @@ class Resolver:
             duration=data.get("duration"),
             requester=requester,
             http_headers=data.get("http_headers") or {},
-            cookies=self._cookie_header() if self._is_niconico_query(query) else None,
         )
+
+    def _resolve_niconico_sync(
+        self,
+        target: str,
+        original_query: str,
+        requester: str,
+        options: dict[str, Any],
+    ) -> Track:
+        cache_dir = Path("/app/data/cache")
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        download_options = {
+            **options,
+            "outtmpl": str(cache_dir / f"niconico-{uuid.uuid4().hex}.%(ext)s"),
+            "quiet": True,
+            "no_warnings": True,
+        }
+
+        with yt_dlp.YoutubeDL(download_options) as ydl:
+            data = ydl.extract_info(target, download=True)
+
+        if data is None:
+            raise RuntimeError("No result found.")
+        if "entries" in data:
+            entries = [entry for entry in data["entries"] if entry]
+            if not entries:
+                raise RuntimeError("No playable entries found.")
+            data = entries[0]
+
+        local_path = self._downloaded_filepath(data)
+        if not local_path or not os.path.exists(local_path):
+            raise RuntimeError("NicoNico downloaded file was not found.")
+
+        return Track(
+            title=data.get("title") or "Untitled",
+            webpage_url=data.get("webpage_url") or original_query,
+            stream_url=local_path,
+            duration=data.get("duration"),
+            requester=requester,
+            http_headers={},
+            local_path=local_path,
+        )
+
+    @staticmethod
+    def _downloaded_filepath(data: dict[str, Any]) -> str | None:
+        requested_downloads = data.get("requested_downloads")
+        if isinstance(requested_downloads, list) and requested_downloads:
+            filepath = requested_downloads[0].get("filepath")
+            if filepath:
+                return str(filepath)
+        filepath = data.get("filepath")
+        if filepath:
+            return str(filepath)
+        return None
 
     def _spotify_track_query(self, query: str) -> str:
         if not self._is_spotify_track_url(query):

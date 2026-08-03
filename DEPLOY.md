@@ -87,4 +87,4 @@ If deployed from zip, upload a new zip and replace the project files, but keep y
 - Your computer does not need to stay online if the bot runs on a VPS.
 - Keep Docker running on the VPS.
 - For Bilibili, YouTube, or NicoNico sources that need account access, place Netscape cookies at `data/cookies.txt`.
-- NicoNico can be played with a full URL or a short ID such as `sm9`.
+- NicoNico can be played with a full URL or a short ID such as `sm9`. NicoNico tracks are cached under `data/cache` before playback to avoid CDN 403 errors.

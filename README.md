@@ -55,4 +55,4 @@ Prefix examples:
 
 If a source needs account cookies, export them as Netscape-format cookies and save them to `data/cookies.txt`. The Compose file mounts `./data` to `/app/data`.
 
-NicoNico often needs login cookies. The bot accepts full NicoNico URLs and short IDs such as `sm9`, `so12345`, `nm12345`, and `lv12345`.
+NicoNico often needs login cookies. The bot accepts full NicoNico URLs and short IDs such as `sm9`, `so12345`, `nm12345`, and `lv12345`. NicoNico tracks are downloaded to `data/cache` before playback to avoid CDN 403 errors, then removed after playback.
