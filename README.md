@@ -8,8 +8,8 @@ Self-hosted Discord music bot for YouTube, Bilibili, NicoNico, and Spotify track
 - Prefix fallback commands for the basics: `!play`, `!skip`, `!stop`, `!queue`, `!leave`, `!求签`, and `!help`.
 - Per-server playback queue.
 - Daily fortune drawing with `/求签`, `/fortune`, or `!求签`.
+- Fortune commands are limited to once per user until the daily UTC/GMT 09:00 reset.
 - Bad fortune has a 10% to 39.6% chance to redraw, with the first result crossed out.
-- Testing default allows unlimited redraws. Set `FORTUNE_DAILY_LOCK=true` to make each user's fortune deterministic for the day.
 - Fortune tiers are based on luck compared with the average, with `98.5%+` as an extra rare top tier.
 - URL playback and YouTube search through `yt-dlp`.
 - Spotify track links are resolved to song metadata, then played from a YouTube search result.

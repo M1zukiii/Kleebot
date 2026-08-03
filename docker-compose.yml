@@ -6,9 +6,9 @@ services:
     restart: unless-stopped
     env_file:
       - .env
+    restart: unless-stopped
     volumes:
       - ./data:/app/data
     dns:
       - 1.1.1.1
       - 8.8.8.8
-

@@ -1,5 +1,4 @@
 import hashlib
-import os
 import secrets
 from dataclasses import dataclass
 from datetime import date
@@ -100,10 +99,7 @@ def _draw_from_seed(seed: str) -> FortuneResult:
 
 def _base_seed(user_id: int, guild_id: int | None = None, today: date | None = None) -> str:
     current_date = today or date.today()
-    if os.getenv("FORTUNE_DAILY_LOCK", "false").lower() in {"1", "true", "yes", "on"}:
-        nonce = current_date.isoformat()
-    else:
-        nonce = secrets.token_hex(8)
+    nonce = f"{current_date.isoformat()}:{secrets.token_hex(8)}"
     return f"{nonce}:{guild_id or 'dm'}:{user_id}"
 
 

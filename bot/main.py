@@ -16,6 +16,7 @@ from .fortune import (
     luck_color,
     luck_summary,
 )
+from .fortune_cooldown import FortuneCooldownStore
 from .player import GuildPlayer
 from .resolver import Resolver
 
@@ -38,8 +39,10 @@ bot = commands.Bot(command_prefix=PREFIX, intents=intents, help_command=None)
 resolver = Resolver()
 players: dict[int, GuildPlayer] = {}
 ASSETS_DIR = Path(__file__).resolve().parent.parent / "assets"
+DATA_DIR = Path("/app/data") if Path("/app").exists() else Path(__file__).resolve().parent.parent / "data"
 FORTUNE_SLIP_IMAGE = ASSETS_DIR / "fortune-slip.webp"
 KLEE_FOOTER_IMAGE = ASSETS_DIR / "klee-footer.jpg"
+fortune_cooldowns = FortuneCooldownStore(DATA_DIR / "fortune_cooldowns.json")
 
 
 def get_player(guild: discord.Guild) -> GuildPlayer:
@@ -231,7 +234,12 @@ async def slash_volume(interaction: discord.Interaction, percent: app_commands.R
 async def slash_fortune(interaction: discord.Interaction) -> None:
     await defer(interaction)
     print(f"fortune requested in {interaction.guild.id if interaction.guild else 'dm'}", flush=True)
+    cooldown = fortune_cooldowns.check(interaction.guild.id if interaction.guild else None, interaction.user.id)
+    if cooldown.active:
+        await respond(interaction, cooldown.message or "你的求签指令还在冷却中哦 ~")
+        return
     result = draw_daily_fortune(user_id=interaction.user.id, guild_id=interaction.guild.id if interaction.guild else None)
+    fortune_cooldowns.mark_used(interaction.guild.id if interaction.guild else None, interaction.user.id)
     embed = build_fortune_embed(interaction.user, interaction.guild, result)
     view = FortuneRerollView(interaction.user, interaction.guild, result) if result.can_reroll else None
     await respond_embed(interaction, embed, fortune_files(), view)
@@ -241,7 +249,12 @@ async def slash_fortune(interaction: discord.Interaction) -> None:
 async def slash_qiuqian_cn(interaction: discord.Interaction) -> None:
     await defer(interaction)
     print(f"求签 requested in {interaction.guild.id if interaction.guild else 'dm'}", flush=True)
+    cooldown = fortune_cooldowns.check(interaction.guild.id if interaction.guild else None, interaction.user.id)
+    if cooldown.active:
+        await respond(interaction, cooldown.message or "你的求签指令还在冷却中哦 ~")
+        return
     result = draw_daily_fortune(user_id=interaction.user.id, guild_id=interaction.guild.id if interaction.guild else None)
+    fortune_cooldowns.mark_used(interaction.guild.id if interaction.guild else None, interaction.user.id)
     embed = build_fortune_embed(interaction.user, interaction.guild, result)
     view = FortuneRerollView(interaction.user, interaction.guild, result) if result.can_reroll else None
     await respond_embed(interaction, embed, fortune_files(), view)
@@ -305,7 +318,12 @@ async def prefix_help(ctx: commands.Context) -> None:
 
 @bot.command(name="qiuqian", aliases=["求签", "抽签", "fortune", "luck"])
 async def prefix_qiuqian(ctx: commands.Context) -> None:
+    cooldown = fortune_cooldowns.check(ctx.guild.id if ctx.guild else None, ctx.author.id)
+    if cooldown.active:
+        await ctx.send(cooldown.message or "你的求签指令还在冷却中哦 ~")
+        return
     result = draw_daily_fortune(user_id=ctx.author.id, guild_id=ctx.guild.id if ctx.guild else None)
+    fortune_cooldowns.mark_used(ctx.guild.id if ctx.guild else None, ctx.author.id)
     view = FortuneRerollView(ctx.author, ctx.guild, result) if result.can_reroll else None
     await ctx.send(embed=build_fortune_embed(ctx.author, ctx.guild, result), files=fortune_files(), view=view)
 
@@ -399,5 +417,5 @@ class _ContextInteraction:
 
 
 if __name__ == "__main__":
-    Path("/app/data").mkdir(parents=True, exist_ok=True)
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
     asyncio.run(bot.start(TOKEN))

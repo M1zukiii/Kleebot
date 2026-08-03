@@ -51,10 +51,11 @@ DISCORD_TOKEN=your-discord-bot-token
 COMMAND_PREFIX=!
 GUILD_ID=
 YTDLP_COOKIES=/app/data/cookies.txt
-FORTUNE_DAILY_LOCK=false
 ```
 
 Do not commit or share `.env`.
+
+Fortune cooldown data is saved in `data/fortune_cooldowns.json`. It resets daily at UTC/GMT 09:00.
 
 ## 4. Start
 
@@ -86,4 +87,3 @@ If deployed from zip, upload a new zip and replace the project files, but keep y
 - Your computer does not need to stay online if the bot runs on a VPS.
 - Keep Docker running on the VPS.
 - For Bilibili, YouTube, or NicoNico sources that need account access, place Netscape cookies at `data/cookies.txt`.
-
