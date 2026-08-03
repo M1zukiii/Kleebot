@@ -4,7 +4,7 @@ Self-hosted Discord music bot for YouTube, Bilibili, NicoNico, and Spotify track
 
 ## Features
 
-- Slash commands for play, queue, pause, resume, skip, stop, leave, and volume.
+- Slash commands for music playback, queue control, volume, and daily fortune drawing.
 - Prefix fallback commands for the basics: `!play`, `!skip`, `!stop`, `!queue`, `!leave`, `!求签`, and `!help`.
 - Per-server playback queue.
 - Daily fortune drawing with `/求签`, `/fortune`, or `!求签`.
@@ -34,16 +34,16 @@ docker compose logs -f kleebot
 
 ## Commands
 
-- `/play query`
-- `/queue`
-- `/skip`
-- `/pause`
-- `/resume`
-- `/stop`
-- `/leave`
-- `/volume percent`
-- `/fortune`
-- `/求签`
+- `/play query` - 播放 YouTube / B站 / NicoNico / Spotify 链接，或直接搜索歌曲。
+- `/queue` - 查看当前播放队列。
+- `/skip` - 跳过当前正在播放的歌曲。
+- `/pause` - 暂停当前播放。
+- `/resume` - 继续播放暂停中的歌曲。
+- `/stop` - 停止播放，并清空当前队列。
+- `/leave` - 让 Kleebot 离开语音频道。
+- `/volume percent` - 设置音量，范围 1 到 100。
+- `/fortune` - 抽取今日幸运签。
+- `/求签` - 抽取今日幸运签。
 
 Prefix examples:
 
