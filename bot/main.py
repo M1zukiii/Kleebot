@@ -197,10 +197,10 @@ async def slash_volume(interaction: discord.Interaction, percent: app_commands.R
     await respond(interaction, f"Volume set to {percent}%.")
 
 
-@bot.tree.command(name="qiuqian", description="Draw today's fortune.")
-async def slash_qiuqian(interaction: discord.Interaction) -> None:
+@bot.tree.command(name="fortune", description="Draw today's fortune.")
+async def slash_fortune(interaction: discord.Interaction) -> None:
     await defer(interaction)
-    print(f"qiuqian requested in {interaction.guild.id if interaction.guild else 'dm'}", flush=True)
+    print(f"fortune requested in {interaction.guild.id if interaction.guild else 'dm'}", flush=True)
     await respond_embed(interaction, build_fortune_embed(interaction.user, interaction.guild))
 
 
@@ -262,7 +262,7 @@ async def prefix_queue(ctx: commands.Context) -> None:
 @bot.command(name="help")
 async def prefix_help(ctx: commands.Context) -> None:
     await ctx.send(
-        "Commands: /play, /skip, /stop, /pause, /resume, /queue, /leave, /volume, /qiuqian, /求签\n"
+        "Commands: /play, /skip, /stop, /pause, /resume, /queue, /leave, /volume, /fortune, /求签\n"
         f"Text fallback: {PREFIX}play <url or search>, {PREFIX}skip, {PREFIX}stop, {PREFIX}queue, {PREFIX}leave"
     )
 
