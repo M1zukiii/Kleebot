@@ -305,11 +305,6 @@ def build_fortune_embed(
 ) -> discord.Embed:
     fortune = draw.fortune
     description = fortune_text(draw)
-    if draw.used_second_chance and draw.first_fortune:
-        description = (
-            f"{fortune_text(draw)}\n\n"
-            "Klee 给了你第二次机会。"
-        )
     embed = discord.Embed(
         title=f"{user.display_name}的幸运签",
         description=description,
@@ -319,10 +314,7 @@ def build_fortune_embed(
     if draw.used_second_chance and draw.first_fortune:
         embed.add_field(
             name="上一只签",
-            value=(
-                f"~~{draw.first_label}（比平均值不走运了 {abs(draw.first_luck_delta or 0):.3f}%）~~\n"
-                f"~~{draw.first_fortune.text}~~"
-            ),
+            value=f"~~{draw.first_label}（比平均值不走运了 {abs(draw.first_luck_delta or 0):.3f}%）~~",
             inline=False,
         )
     embed.set_thumbnail(url="attachment://fortune-slip.webp")

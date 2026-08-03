@@ -57,7 +57,7 @@ def draw_daily_fortune(user_id: int, guild_id: int | None = None, today: date | 
         fortune=first.fortune,
         luck_delta=first.luck_delta,
         label=first.label,
-        can_reroll=first.luck_delta <= -10 and _second_chance(seed),
+        can_reroll=first.luck_delta <= -10 and _second_chance(seed, first.luck_delta),
     )
 
 
@@ -116,9 +116,17 @@ def _signed_percent(raw: bytes) -> float:
     return round((value * 200) - 100, 3)
 
 
-def _second_chance(seed: str) -> bool:
+def _second_chance(seed: str, luck_delta: float) -> bool:
+    chance = _second_chance_probability(luck_delta)
     digest = hashlib.sha256(f"{seed}:second-chance".encode("utf-8")).digest()
-    return int.from_bytes(digest[:4], "big") / 0xFFFFFFFF < 0.5
+    return int.from_bytes(digest[:4], "big") / 0xFFFFFFFF < chance
+
+
+def _second_chance_probability(luck_delta: float) -> float:
+    if luck_delta > -10:
+        return 0.0
+    severity = min(1.0, max(0.0, (abs(luck_delta) - 10) / 90))
+    return 0.10 + (0.396 - 0.10) * severity
 
 
 def _luck_label(luck_delta: float) -> str:
