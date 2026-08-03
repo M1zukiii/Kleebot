@@ -29,6 +29,9 @@ intents.message_content = True
 bot = commands.Bot(command_prefix=PREFIX, intents=intents, help_command=None)
 resolver = Resolver()
 players: dict[int, GuildPlayer] = {}
+ASSETS_DIR = Path(__file__).resolve().parent.parent / "assets"
+FORTUNE_SLIP_IMAGE = ASSETS_DIR / "fortune-slip.webp"
+KLEE_FOOTER_IMAGE = ASSETS_DIR / "klee-footer.jpg"
 
 
 def get_player(guild: discord.Guild) -> GuildPlayer:
@@ -46,11 +49,15 @@ async def respond(interaction: discord.Interaction, message: str) -> None:
         await interaction.response.send_message(message)
 
 
-async def respond_embed(interaction: discord.Interaction, embed: discord.Embed) -> None:
+async def respond_embed(
+    interaction: discord.Interaction,
+    embed: discord.Embed,
+    files: list[discord.File] | None = None,
+) -> None:
     if interaction.response.is_done():
-        await interaction.followup.send(embed=embed)
+        await interaction.followup.send(embed=embed, files=files or [])
     else:
-        await interaction.response.send_message(embed=embed)
+        await interaction.response.send_message(embed=embed, files=files or [])
 
 
 async def defer(interaction: discord.Interaction) -> None:
@@ -201,14 +208,16 @@ async def slash_volume(interaction: discord.Interaction, percent: app_commands.R
 async def slash_fortune(interaction: discord.Interaction) -> None:
     await defer(interaction)
     print(f"fortune requested in {interaction.guild.id if interaction.guild else 'dm'}", flush=True)
-    await respond_embed(interaction, build_fortune_embed(interaction.user, interaction.guild))
+    embed, files = build_fortune_embed(interaction.user, interaction.guild)
+    await respond_embed(interaction, embed, files)
 
 
 @bot.tree.command(name="求签", description="抽取今日签文。")
 async def slash_qiuqian_cn(interaction: discord.Interaction) -> None:
     await defer(interaction)
     print(f"求签 requested in {interaction.guild.id if interaction.guild else 'dm'}", flush=True)
-    await respond_embed(interaction, build_fortune_embed(interaction.user, interaction.guild))
+    embed, files = build_fortune_embed(interaction.user, interaction.guild)
+    await respond_embed(interaction, embed, files)
 
 
 @bot.command(name="play", aliases=["p"])
@@ -269,12 +278,17 @@ async def prefix_help(ctx: commands.Context) -> None:
 
 @bot.command(name="qiuqian", aliases=["求签", "抽签", "fortune", "luck"])
 async def prefix_qiuqian(ctx: commands.Context) -> None:
-    await ctx.send(embed=build_fortune_embed(ctx.author, ctx.guild))
+    embed, files = build_fortune_embed(ctx.author, ctx.guild)
+    await ctx.send(embed=embed, files=files)
 
 
-def build_fortune_embed(user: discord.abc.User, guild: discord.Guild | None) -> discord.Embed:
+def build_fortune_embed(user: discord.abc.User, guild: discord.Guild | None) -> tuple[discord.Embed, list[discord.File]]:
     draw = draw_daily_fortune(user_id=user.id, guild_id=guild.id if guild else None)
     fortune = draw.fortune
+    files = [
+        discord.File(FORTUNE_SLIP_IMAGE, filename="fortune-slip.webp"),
+        discord.File(KLEE_FOOTER_IMAGE, filename="klee-footer.jpg"),
+    ]
     description = fortune.text
     if draw.used_second_chance and draw.first_fortune:
         description = (
@@ -289,9 +303,9 @@ def build_fortune_embed(user: discord.abc.User, guild: discord.Guild | None) -> 
     )
     embed.add_field(name="运势", value=luck_summary(draw), inline=False)
     embed.add_field(name="建议", value=fortune.advice, inline=False)
-    embed.set_thumbnail(url="https://static.wikia.nocookie.net/gensin-impact/images/5/5f/Item_Fortune_Slip.png")
-    embed.set_footer(text="爱一定来自不卜卢！", icon_url=user.display_avatar.url)
-    return embed
+    embed.set_thumbnail(url="attachment://fortune-slip.webp")
+    embed.set_footer(text="爱一定来自西风骑士团禁闭室！", icon_url="attachment://klee-footer.jpg")
+    return embed, files
 
 
 class _ContextResponse:
