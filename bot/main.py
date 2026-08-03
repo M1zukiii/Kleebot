@@ -55,10 +55,13 @@ async def respond_embed(
     files: list[discord.File] | None = None,
     view: discord.ui.View | None = None,
 ) -> None:
+    kwargs = {"embed": embed, "files": files or []}
+    if view is not None:
+        kwargs["view"] = view
     if interaction.response.is_done():
-        await interaction.followup.send(embed=embed, files=files or [], view=view)
+        await interaction.followup.send(**kwargs)
     else:
-        await interaction.response.send_message(embed=embed, files=files or [], view=view)
+        await interaction.response.send_message(**kwargs)
 
 
 async def defer(interaction: discord.Interaction) -> None:
