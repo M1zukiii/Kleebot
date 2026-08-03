@@ -7,7 +7,16 @@ from discord import app_commands
 from discord.ext import commands
 from dotenv import load_dotenv
 
-from .fortune import FortuneResult, draw_daily_fortune, draw_second_fortune, fortune_message, fortune_text, luck_color, luck_summary
+from .fortune import (
+    FortuneResult,
+    draw_daily_fortune,
+    draw_forced_reroll_fortune,
+    draw_second_fortune,
+    fortune_message,
+    fortune_text,
+    luck_color,
+    luck_summary,
+)
 from .player import GuildPlayer
 from .resolver import Resolver
 
@@ -228,6 +237,19 @@ async def slash_qiuqian_cn(interaction: discord.Interaction) -> None:
     await respond_embed(interaction, embed, fortune_files(), view)
 
 
+@bot.tree.command(name="foutune1", description="Test fortune reroll button.")
+async def slash_foutune1(interaction: discord.Interaction) -> None:
+    await defer(interaction)
+    print(f"foutune1 requested in {interaction.guild.id if interaction.guild else 'dm'}", flush=True)
+    result = draw_forced_reroll_fortune(
+        user_id=interaction.user.id,
+        guild_id=interaction.guild.id if interaction.guild else None,
+    )
+    embed = build_fortune_embed(interaction.user, interaction.guild, result)
+    view = FortuneRerollView(interaction.user, interaction.guild, result)
+    await respond_embed(interaction, embed, fortune_files(), view)
+
+
 @bot.command(name="play", aliases=["p"])
 async def prefix_play(ctx: commands.Context, *, query: str) -> None:
     if ctx.guild is None:
@@ -311,12 +333,6 @@ def build_fortune_embed(
         color=luck_color(draw.label),
     )
     embed.add_field(name="运势", value=luck_summary(draw), inline=False)
-    if draw.can_reroll:
-        embed.add_field(
-            name="第二次机会",
-            value="当求签结果是不幸运的时候，不要气馁！\nKlee会有10% - 39.6%的概率给予你第二次机会 ~",
-            inline=False,
-        )
     if draw.used_second_chance and draw.first_fortune:
         embed.add_field(
             name="上一只签",
@@ -351,6 +367,14 @@ class FortuneRerollView(discord.ui.View):
         button.label = "已重抽"
         await interaction.response.edit_message(embed=embed, view=None)
         self.stop()
+
+    @discord.ui.button(label="第二次机会？", style=discord.ButtonStyle.secondary)
+    async def explain(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        await interaction.response.send_message(
+            "当求签结果是不幸运的时候，不要气馁！\n"
+            "Klee会有10% - 39.6%的概率给予你第二次机会 ~",
+            ephemeral=True,
+        )
 
 
 class _ContextResponse:
