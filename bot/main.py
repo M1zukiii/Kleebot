@@ -189,6 +189,12 @@ async def slash_play(interaction: discord.Interaction, query: str) -> None:
         await interaction.followup.send(f"Could not play that: {exc}")
 
 
+@bot.tree.command(name="播放", description="播放 YouTube / B站 / NicoNico / Spotify 链接，或直接搜索歌曲。")
+@app_commands.describe(query="歌曲名、搜索词，或 YouTube / B站 / NicoNico / Spotify 链接")
+async def slash_play_cn(interaction: discord.Interaction, query: str) -> None:
+    await slash_play(interaction, query)
+
+
 @bot.tree.command(name="skip", description="跳过当前正在播放的歌曲。")
 async def slash_skip(interaction: discord.Interaction) -> None:
     await defer(interaction)
@@ -197,6 +203,11 @@ async def slash_skip(interaction: discord.Interaction) -> None:
         await respond(interaction, "Skipped.")
     else:
         await respond(interaction, "Nothing is playing.")
+
+
+@bot.tree.command(name="跳过", description="跳过当前正在播放的歌曲。")
+async def slash_skip_cn(interaction: discord.Interaction) -> None:
+    await slash_skip(interaction)
 
 
 @bot.tree.command(name="stop", description="停止播放，并清空当前队列。")
@@ -213,6 +224,31 @@ async def slash_stop(interaction: discord.Interaction) -> None:
     await respond(interaction, "Stopped and cleared queue.")
 
 
+@bot.tree.command(name="停止", description="停止播放，并清空当前队列。")
+async def slash_stop_cn(interaction: discord.Interaction) -> None:
+    await slash_stop(interaction)
+
+
+@bot.tree.command(name="join", description="让 Kleebot 加入你所在的语音频道。")
+async def slash_join(interaction: discord.Interaction) -> None:
+    await defer(interaction)
+    print(f"join requested in {interaction.guild.id if interaction.guild else 'dm'}", flush=True)
+    if interaction.guild is None:
+        await respond(interaction, "Use this in a server.")
+        return
+    try:
+        voice_client = await get_player(interaction.guild).ensure_voice(interaction)
+    except Exception as exc:
+        await respond(interaction, f"Could not join voice channel: {exc}")
+        return
+    await respond(interaction, f"Joined {voice_client.channel.mention}.")
+
+
+@bot.tree.command(name="加入", description="让 Kleebot 加入你所在的语音频道。")
+async def slash_join_cn(interaction: discord.Interaction) -> None:
+    await slash_join(interaction)
+
+
 @bot.tree.command(name="leave", description="让 Kleebot 离开语音频道。")
 async def slash_leave(interaction: discord.Interaction) -> None:
     await defer(interaction)
@@ -225,6 +261,11 @@ async def slash_leave(interaction: discord.Interaction) -> None:
         await respond(interaction, "I am not in a voice channel.")
 
 
+@bot.tree.command(name="离开", description="让 Kleebot 离开语音频道。")
+async def slash_leave_cn(interaction: discord.Interaction) -> None:
+    await slash_leave(interaction)
+
+
 @bot.tree.command(name="queue", description="查看当前播放队列。")
 async def slash_queue(interaction: discord.Interaction) -> None:
     await defer(interaction)
@@ -233,6 +274,11 @@ async def slash_queue(interaction: discord.Interaction) -> None:
         await respond(interaction, "Use this in a server.")
         return
     await respond(interaction, get_player(interaction.guild).queue_text())
+
+
+@bot.tree.command(name="队列", description="查看当前播放队列。")
+async def slash_queue_cn(interaction: discord.Interaction) -> None:
+    await slash_queue(interaction)
 
 
 @bot.tree.command(name="pause", description="暂停当前播放。")
@@ -247,6 +293,11 @@ async def slash_pause(interaction: discord.Interaction) -> None:
         await respond(interaction, "Nothing is playing.")
 
 
+@bot.tree.command(name="暂停", description="暂停当前播放。")
+async def slash_pause_cn(interaction: discord.Interaction) -> None:
+    await slash_pause(interaction)
+
+
 @bot.tree.command(name="resume", description="继续播放暂停中的歌曲。")
 async def slash_resume(interaction: discord.Interaction) -> None:
     await defer(interaction)
@@ -257,6 +308,11 @@ async def slash_resume(interaction: discord.Interaction) -> None:
         await respond(interaction, "Resumed.")
     else:
         await respond(interaction, "Nothing is paused.")
+
+
+@bot.tree.command(name="继续", description="继续播放暂停中的歌曲。")
+async def slash_resume_cn(interaction: discord.Interaction) -> None:
+    await slash_resume(interaction)
 
 
 @bot.tree.command(name="volume", description="设置音量，范围 1 到 100。")
@@ -274,8 +330,18 @@ async def slash_volume(interaction: discord.Interaction, percent: app_commands.R
     await respond(interaction, f"Volume set to {percent}%.")
 
 
+@bot.tree.command(name="音量", description="设置音量，范围 1 到 100。")
+async def slash_volume_cn(interaction: discord.Interaction, percent: app_commands.Range[int, 1, 100]) -> None:
+    await slash_volume(interaction, percent)
+
+
 @bot.tree.command(name="help", description="查看 Kleebot 的指令说明。")
 async def slash_help(interaction: discord.Interaction) -> None:
+    await respond_help(interaction)
+
+
+@bot.tree.command(name="帮助", description="查看 Kleebot 的指令说明。")
+async def slash_help_cn(interaction: discord.Interaction) -> None:
     await respond_help(interaction)
 
 
@@ -339,6 +405,18 @@ async def prefix_stop(ctx: commands.Context) -> None:
     if ctx.guild.voice_client:
         ctx.guild.voice_client.stop()
     await ctx.send("Stopped and cleared queue.")
+
+
+@bot.command(name="join", aliases=["j", "加入"])
+async def prefix_join(ctx: commands.Context) -> None:
+    if ctx.guild is None:
+        return
+    try:
+        voice_client = await get_player(ctx.guild).ensure_voice(_ContextInteraction(ctx))
+    except Exception as exc:
+        await ctx.send(f"Could not join voice channel: {exc}")
+        return
+    await ctx.send(f"Joined {voice_client.channel.mention}.")
 
 
 @bot.command(name="leave")

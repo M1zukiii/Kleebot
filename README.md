@@ -35,14 +35,24 @@ docker compose logs -f kleebot
 ## Commands
 
 - `/play query` - 播放 YouTube / B站 / NicoNico / Spotify 链接，或直接搜索歌曲。
+- `/播放 query` - `/play` 的中文版本。
+- `/join` / `/加入` - 让 Kleebot 加入你所在的语音频道。
 - `/queue` - 查看当前播放队列。
+- `/队列` - `/queue` 的中文版本。
 - `/skip` - 跳过当前正在播放的歌曲。
+- `/跳过` - `/skip` 的中文版本。
 - `/pause` - 暂停当前播放。
+- `/暂停` - `/pause` 的中文版本。
 - `/resume` - 继续播放暂停中的歌曲。
+- `/继续` - `/resume` 的中文版本。
 - `/stop` - 停止播放，并清空当前队列。
+- `/停止` - `/stop` 的中文版本。
 - `/leave` - 让 Kleebot 离开语音频道。
+- `/离开` - `/leave` 的中文版本。
 - `/volume percent` - 设置音量，范围 1 到 100。
+- `/音量 percent` - `/volume` 的中文版本。
 - `/help` - 查看 Kleebot 的指令说明。
+- `/帮助` - `/help` 的中文版本。
 - `/fortune` - 抽取今日幸运签。
 - `/求签` - 抽取今日幸运签。
 
