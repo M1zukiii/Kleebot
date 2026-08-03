@@ -17,6 +17,7 @@ class FortuneResult:
     fortune: Fortune
     luck_delta: float
     label: str
+    can_reroll: bool = False
     first_fortune: Fortune | None = None
     first_luck_delta: float | None = None
     first_label: str | None = None
@@ -41,26 +42,27 @@ FORTUNES = [
 
 
 def draw_daily_fortune(user_id: int, guild_id: int | None = None, today: date | None = None) -> FortuneResult:
-    current_date = today or date.today()
-    if os.getenv("FORTUNE_DAILY_LOCK", "false").lower() in {"1", "true", "yes", "on"}:
-        nonce = current_date.isoformat()
-    else:
-        nonce = secrets.token_hex(8)
-    seed = f"{nonce}:{guild_id or 'dm'}:{user_id}"
+    seed = _base_seed(user_id=user_id, guild_id=guild_id, today=today)
     first = _draw_from_seed(f"{seed}:first")
+    return FortuneResult(
+        fortune=first.fortune,
+        luck_delta=first.luck_delta,
+        label=first.label,
+        can_reroll=first.luck_delta <= -10 and _second_chance(seed),
+    )
 
-    if first.luck_delta < -10 and _second_chance(seed):
-        second = _draw_from_seed(f"{seed}:second")
-        return FortuneResult(
-            fortune=second.fortune,
-            luck_delta=second.luck_delta,
-            label=second.label,
-            first_fortune=first.fortune,
-            first_luck_delta=first.luck_delta,
-            first_label=first.label,
-        )
 
-    return first
+def draw_second_fortune(first: FortuneResult, user_id: int, guild_id: int | None = None) -> FortuneResult:
+    seed = f"{secrets.token_hex(8)}:{guild_id or 'dm'}:{user_id}:second"
+    second = _draw_from_seed(seed)
+    return FortuneResult(
+        fortune=second.fortune,
+        luck_delta=second.luck_delta,
+        label=second.label,
+        first_fortune=first.fortune,
+        first_luck_delta=first.luck_delta,
+        first_label=first.label,
+    )
 
 
 def fortune_message(user_name: str, user_id: int, guild_id: int | None = None) -> str:
@@ -68,7 +70,7 @@ def fortune_message(user_name: str, user_id: int, guild_id: int | None = None) -
     lines = [f"{user_name} 今日求签：{result.label} - {result.fortune.title}"]
     if result.used_second_chance and result.first_fortune:
         lines.append(f"第一签：~~{result.first_label} - {result.first_fortune.title}~~")
-    lines.extend([result.fortune.text, f"运势：{luck_summary(result)}", f"建议：{result.fortune.advice}"])
+    lines.extend([result.fortune.text, f"运势：{luck_summary(result)}"])
     return "\n".join(lines)
 
 
@@ -85,6 +87,15 @@ def _draw_from_seed(seed: str) -> FortuneResult:
     fortune = FORTUNES[int.from_bytes(digest[:4], "big") % len(FORTUNES)]
     luck_delta = _signed_percent(digest[4:8])
     return FortuneResult(fortune=fortune, luck_delta=luck_delta, label=_luck_label(luck_delta))
+
+
+def _base_seed(user_id: int, guild_id: int | None = None, today: date | None = None) -> str:
+    current_date = today or date.today()
+    if os.getenv("FORTUNE_DAILY_LOCK", "false").lower() in {"1", "true", "yes", "on"}:
+        nonce = current_date.isoformat()
+    else:
+        nonce = secrets.token_hex(8)
+    return f"{nonce}:{guild_id or 'dm'}:{user_id}"
 
 
 def _signed_percent(raw: bytes) -> float:

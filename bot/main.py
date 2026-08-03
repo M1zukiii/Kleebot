@@ -7,7 +7,7 @@ from discord import app_commands
 from discord.ext import commands
 from dotenv import load_dotenv
 
-from .fortune import draw_daily_fortune, fortune_message, luck_color, luck_summary
+from .fortune import FortuneResult, draw_daily_fortune, draw_second_fortune, fortune_message, luck_color, luck_summary
 from .player import GuildPlayer
 from .resolver import Resolver
 
@@ -53,11 +53,12 @@ async def respond_embed(
     interaction: discord.Interaction,
     embed: discord.Embed,
     files: list[discord.File] | None = None,
+    view: discord.ui.View | None = None,
 ) -> None:
     if interaction.response.is_done():
-        await interaction.followup.send(embed=embed, files=files or [])
+        await interaction.followup.send(embed=embed, files=files or [], view=view)
     else:
-        await interaction.response.send_message(embed=embed, files=files or [])
+        await interaction.response.send_message(embed=embed, files=files or [], view=view)
 
 
 async def defer(interaction: discord.Interaction) -> None:
@@ -208,16 +209,20 @@ async def slash_volume(interaction: discord.Interaction, percent: app_commands.R
 async def slash_fortune(interaction: discord.Interaction) -> None:
     await defer(interaction)
     print(f"fortune requested in {interaction.guild.id if interaction.guild else 'dm'}", flush=True)
-    embed, files = build_fortune_embed(interaction.user, interaction.guild)
-    await respond_embed(interaction, embed, files)
+    result = draw_daily_fortune(user_id=interaction.user.id, guild_id=interaction.guild.id if interaction.guild else None)
+    embed = build_fortune_embed(interaction.user, interaction.guild, result)
+    view = FortuneRerollView(interaction.user, interaction.guild, result) if result.can_reroll else None
+    await respond_embed(interaction, embed, fortune_files(), view)
 
 
 @bot.tree.command(name="求签", description="抽取今日签文。")
 async def slash_qiuqian_cn(interaction: discord.Interaction) -> None:
     await defer(interaction)
     print(f"求签 requested in {interaction.guild.id if interaction.guild else 'dm'}", flush=True)
-    embed, files = build_fortune_embed(interaction.user, interaction.guild)
-    await respond_embed(interaction, embed, files)
+    result = draw_daily_fortune(user_id=interaction.user.id, guild_id=interaction.guild.id if interaction.guild else None)
+    embed = build_fortune_embed(interaction.user, interaction.guild, result)
+    view = FortuneRerollView(interaction.user, interaction.guild, result) if result.can_reroll else None
+    await respond_embed(interaction, embed, fortune_files(), view)
 
 
 @bot.command(name="play", aliases=["p"])
@@ -278,23 +283,29 @@ async def prefix_help(ctx: commands.Context) -> None:
 
 @bot.command(name="qiuqian", aliases=["求签", "抽签", "fortune", "luck"])
 async def prefix_qiuqian(ctx: commands.Context) -> None:
-    embed, files = build_fortune_embed(ctx.author, ctx.guild)
-    await ctx.send(embed=embed, files=files)
+    result = draw_daily_fortune(user_id=ctx.author.id, guild_id=ctx.guild.id if ctx.guild else None)
+    view = FortuneRerollView(ctx.author, ctx.guild, result) if result.can_reroll else None
+    await ctx.send(embed=build_fortune_embed(ctx.author, ctx.guild, result), files=fortune_files(), view=view)
 
 
-def build_fortune_embed(user: discord.abc.User, guild: discord.Guild | None) -> tuple[discord.Embed, list[discord.File]]:
-    draw = draw_daily_fortune(user_id=user.id, guild_id=guild.id if guild else None)
-    fortune = draw.fortune
-    files = [
+def fortune_files() -> list[discord.File]:
+    return [
         discord.File(FORTUNE_SLIP_IMAGE, filename="fortune-slip.webp"),
         discord.File(KLEE_FOOTER_IMAGE, filename="klee-footer.jpg"),
     ]
+
+
+def build_fortune_embed(
+    user: discord.abc.User,
+    guild: discord.Guild | None,
+    draw: FortuneResult,
+) -> discord.Embed:
+    fortune = draw.fortune
     description = fortune.text
     if draw.used_second_chance and draw.first_fortune:
         description = (
-            f"第一签：~~{draw.first_label} - {draw.first_fortune.title}~~\n"
-            f"~~{draw.first_fortune.text}~~\n\n"
-            f"第二次机会：{fortune.text}"
+            f"{fortune.text}\n\n"
+            "Klee 给了你第二次机会。"
         )
     embed = discord.Embed(
         title=f"{user.display_name}的幸运签",
@@ -302,10 +313,43 @@ def build_fortune_embed(user: discord.abc.User, guild: discord.Guild | None) -> 
         color=luck_color(draw.label),
     )
     embed.add_field(name="运势", value=luck_summary(draw), inline=False)
-    embed.add_field(name="建议", value=fortune.advice, inline=False)
+    if draw.used_second_chance and draw.first_fortune:
+        embed.add_field(
+            name="上一只签",
+            value=(
+                f"~~{draw.first_label}（比平均值不走运了 {abs(draw.first_luck_delta or 0):.3f}%）~~\n"
+                f"~~{draw.first_fortune.text}~~"
+            ),
+            inline=False,
+        )
     embed.set_thumbnail(url="attachment://fortune-slip.webp")
     embed.set_footer(text="爱一定来自西风骑士团禁闭室！", icon_url="attachment://klee-footer.jpg")
-    return embed, files
+    return embed
+
+
+class FortuneRerollView(discord.ui.View):
+    def __init__(self, user: discord.abc.User, guild: discord.Guild | None, first_result: FortuneResult) -> None:
+        super().__init__(timeout=120)
+        self.user_id = user.id
+        self.guild = guild
+        self.first_result = first_result
+
+    @discord.ui.button(label="重抽一次", style=discord.ButtonStyle.primary)
+    async def reroll(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        if interaction.user.id != self.user_id:
+            await interaction.response.send_message("这支签不是你的，不能替别人重抽。", ephemeral=True)
+            return
+
+        second = draw_second_fortune(
+            first=self.first_result,
+            user_id=interaction.user.id,
+            guild_id=self.guild.id if self.guild else None,
+        )
+        embed = build_fortune_embed(interaction.user, self.guild, second)
+        button.disabled = True
+        button.label = "已重抽"
+        await interaction.response.edit_message(embed=embed, view=None)
+        self.stop()
 
 
 class _ContextResponse:
