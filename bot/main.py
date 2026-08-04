@@ -45,6 +45,13 @@ HELP_TEXT_FILE = Path(os.getenv("HELP_TEXT_FILE", str(BASE_DIR / "help.txt")))
 FORTUNE_SLIP_IMAGE = ASSETS_DIR / "fortune-slip.webp"
 KLEE_FOOTER_IMAGE = ASSETS_DIR / "klee-footer.jpg"
 fortune_cooldowns = FortuneCooldownStore(DATA_DIR / "fortune_cooldowns.json")
+FILTER_CHOICES = [
+    app_commands.Choice(name="off", value="off"),
+    app_commands.Choice(name="bassboost", value="bassboost"),
+    app_commands.Choice(name="nightcore", value="nightcore"),
+    app_commands.Choice(name="vaporwave", value="vaporwave"),
+    app_commands.Choice(name="karaoke", value="karaoke"),
+]
 
 DEFAULT_HELP_TEXT = """Kleebot 指令：
 `/play` 播放 YouTube / B站 / NicoNico / Spotify 链接，或直接搜索歌曲
@@ -295,6 +302,21 @@ async def handle_volume(interaction: discord.Interaction, percent: int) -> None:
     await respond(interaction, f"Volume set to {percent}%.")
 
 
+async def handle_filter(interaction: discord.Interaction, mode: str) -> None:
+    await defer(interaction)
+    print(f"filter requested in {interaction.guild.id if interaction.guild else 'dm'}: {mode}", flush=True)
+    if interaction.guild is None:
+        await respond(interaction, "Use this in a server.")
+        return
+    try:
+        selected = get_player(interaction.guild).set_filter(mode)
+    except ValueError as exc:
+        await respond(interaction, str(exc))
+        return
+    note = "It will apply from the next track. Use /skip to restart with the new filter."
+    await respond(interaction, f"Filter set to `{selected}`. {note}")
+
+
 @bot.tree.command(name="play", description="Play a YouTube, Bilibili, NicoNico, Spotify link, or search query.")
 @app_commands.describe(query="Song name, search text, or a YouTube, Bilibili, NicoNico, Spotify link")
 async def slash_play(interaction: discord.Interaction, query: str) -> None:
@@ -385,6 +407,20 @@ async def slash_volume(interaction: discord.Interaction, percent: app_commands.R
 @bot.tree.command(name="音量", description="设置音量，范围 1 到 100。")
 async def slash_volume_cn(interaction: discord.Interaction, percent: app_commands.Range[int, 1, 100]) -> None:
     await handle_volume(interaction, percent)
+
+
+@bot.tree.command(name="filter", description="Set an audio filter for future tracks.")
+@app_commands.describe(mode="Audio filter to use")
+@app_commands.choices(mode=FILTER_CHOICES)
+async def slash_filter(interaction: discord.Interaction, mode: app_commands.Choice[str]) -> None:
+    await handle_filter(interaction, mode.value)
+
+
+@bot.tree.command(name="滤镜", description="设置后续歌曲使用的音频滤镜。")
+@app_commands.describe(mode="要使用的音频滤镜")
+@app_commands.choices(mode=FILTER_CHOICES)
+async def slash_filter_cn(interaction: discord.Interaction, mode: app_commands.Choice[str]) -> None:
+    await handle_filter(interaction, mode.value)
 
 
 @bot.tree.command(name="help", description="Show Kleebot command help.")
@@ -485,6 +521,18 @@ async def prefix_leave(ctx: commands.Context) -> None:
 async def prefix_queue(ctx: commands.Context) -> None:
     if ctx.guild:
         await ctx.send(get_player(ctx.guild).queue_text())
+
+
+@bot.command(name="filter", aliases=["滤镜"])
+async def prefix_filter(ctx: commands.Context, mode: str) -> None:
+    if ctx.guild is None:
+        return
+    try:
+        selected = get_player(ctx.guild).set_filter(mode)
+    except ValueError as exc:
+        await ctx.send(str(exc))
+        return
+    await ctx.send(f"Filter set to `{selected}`. It will apply from the next track.")
 
 
 @bot.command(name="help")

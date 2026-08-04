@@ -10,6 +10,13 @@ from .resolver import Resolver, Track
 
 FFMPEG_BEFORE_OPTIONS = "-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5"
 FFMPEG_OPTIONS = "-vn"
+FFMPEG_FILTERS = {
+    "off": "",
+    "bassboost": "bass=g=8:f=110:w=0.6",
+    "nightcore": "asetrate=48000*1.25,aresample=48000,atempo=1.0",
+    "vaporwave": "asetrate=48000*0.8,aresample=48000,atempo=1.0",
+    "karaoke": "pan=stereo|c0=c0-c1|c1=c1-c0",
+}
 DEFAULT_USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
     "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36"
@@ -24,6 +31,7 @@ class GuildPlayer:
     queue: deque[Track] = field(default_factory=deque)
     current: Track | None = None
     volume: float = 0.35
+    audio_filter: str = "off"
     lock: asyncio.Lock = field(default_factory=asyncio.Lock)
 
     async def enqueue(self, interaction: discord.Interaction, query: str) -> Track:
@@ -67,7 +75,7 @@ class GuildPlayer:
         source = discord.FFmpegPCMAudio(
             played_track.stream_url,
             before_options=before_options,
-            options=FFMPEG_OPTIONS,
+            options=self._ffmpeg_options(),
         )
         audio = discord.PCMVolumeTransformer(source, volume=self.volume)
 
@@ -95,6 +103,22 @@ class GuildPlayer:
             headers["Cookie"] = track.cookies
         header_lines = "".join(f"{key}: {value}\r\n" for key, value in headers.items() if value)
         return f'{FFMPEG_BEFORE_OPTIONS} -headers "{header_lines}"'
+
+    def _ffmpeg_options(self) -> str:
+        filter_graph = FFMPEG_FILTERS.get(self.audio_filter, "")
+        if not filter_graph:
+            return FFMPEG_OPTIONS
+        return f'{FFMPEG_OPTIONS} -af "{filter_graph}"'
+
+    def set_filter(self, name: str) -> str:
+        normalized = name.lower().strip()
+        if normalized in {"none", "clear", "reset", "关闭", "清除"}:
+            normalized = "off"
+        if normalized not in FFMPEG_FILTERS:
+            choices = ", ".join(FFMPEG_FILTERS)
+            raise ValueError(f"Unknown filter. Choose one of: {choices}")
+        self.audio_filter = normalized
+        return normalized
 
     @staticmethod
     def _cleanup_track(track: Track) -> None:

@@ -51,6 +51,7 @@ docker compose logs -f kleebot
 - `/离开` - `/leave` 的中文版本。
 - `/volume percent` - 设置音量，范围 1 到 100。
 - `/音量 percent` - `/volume` 的中文版本。
+- `/filter mode` / `/滤镜 mode` - 设置音频滤镜：`off`, `bassboost`, `nightcore`, `vaporwave`, `karaoke`。
 - `/help` - 查看 Kleebot 的指令说明。
 - `/帮助` - `/help` 的中文版本。
 - `/fortune` - 抽取今日幸运签。
