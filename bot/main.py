@@ -90,18 +90,28 @@ def split_discord_message(text: str, limit: int = 1900) -> list[str]:
     return chunks or [text[:limit]]
 
 
-async def respond(interaction: discord.Interaction, message: str) -> None:
-    if interaction.response.is_done():
-        await interaction.followup.send(message)
-    else:
-        await interaction.response.send_message(message)
+async def respond(interaction: discord.Interaction, message: str) -> bool:
+    try:
+        if interaction.response.is_done():
+            await interaction.followup.send(message)
+        else:
+            await interaction.response.send_message(message)
+    except discord.NotFound:
+        print("interaction response skipped: interaction is no longer available", flush=True)
+        return False
+    return True
 
 
 async def respond_help(interaction: discord.Interaction) -> None:
     chunks = split_discord_message(load_help_text())
-    await respond(interaction, chunks[0])
+    if not await respond(interaction, chunks[0]):
+        return
     for chunk in chunks[1:]:
-        await interaction.followup.send(chunk)
+        try:
+            await interaction.followup.send(chunk)
+        except discord.NotFound:
+            print("help followup skipped: interaction is no longer available", flush=True)
+            return
 
 
 async def respond_embed(
@@ -113,15 +123,23 @@ async def respond_embed(
     kwargs = {"embed": embed, "files": files or []}
     if view is not None:
         kwargs["view"] = view
-    if interaction.response.is_done():
-        await interaction.followup.send(**kwargs)
-    else:
-        await interaction.response.send_message(**kwargs)
+    try:
+        if interaction.response.is_done():
+            await interaction.followup.send(**kwargs)
+        else:
+            await interaction.response.send_message(**kwargs)
+    except discord.NotFound:
+        print("embed response skipped: interaction is no longer available", flush=True)
 
 
-async def defer(interaction: discord.Interaction) -> None:
+async def defer(interaction: discord.Interaction) -> bool:
     if not interaction.response.is_done():
-        await interaction.response.defer(thinking=True)
+        try:
+            await interaction.response.defer(thinking=True)
+        except discord.NotFound:
+            print("defer skipped: interaction is no longer available", flush=True)
+            return False
+    return True
 
 
 @bot.event
@@ -169,10 +187,8 @@ async def clear_global_commands() -> None:
 @bot.tree.error
 async def on_app_command_error(interaction: discord.Interaction, error: app_commands.AppCommandError) -> None:
     print(f"slash command error in {interaction.command}: {error}", flush=True)
-    try:
-        await respond(interaction, f"Command failed: {error}")
-    except Exception as exc:
-        print(f"failed to report slash error: {exc}", flush=True)
+    if not await respond(interaction, f"Command failed: {error}"):
+        print("failed to report slash error: interaction is no longer available", flush=True)
 
 
 async def handle_play(interaction: discord.Interaction, query: str) -> None:
@@ -182,9 +198,9 @@ async def handle_play(interaction: discord.Interaction, query: str) -> None:
             raise RuntimeError("Use this in a server.")
         print(f"play requested in {interaction.guild.id}: {query}", flush=True)
         track = await get_player(interaction.guild).enqueue(interaction, query)
-        await interaction.followup.send(f"Queued: [{track.title}]({track.webpage_url})")
+        await respond(interaction, f"Queued: [{track.title}]({track.webpage_url})")
     except Exception as exc:
-        await interaction.followup.send(f"Could not play that: {exc}")
+        await respond(interaction, f"Could not play that: {exc}")
 
 
 async def handle_skip(interaction: discord.Interaction) -> None:
