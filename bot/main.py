@@ -121,12 +121,12 @@ def split_discord_message(text: str, limit: int = 1900) -> list[str]:
     return chunks or [text[:limit]]
 
 
-async def respond(interaction: discord.Interaction, message: str) -> bool:
+async def respond(interaction: discord.Interaction, message: str, ephemeral: bool = False) -> bool:
     try:
         if interaction.response.is_done():
-            await interaction.followup.send(message)
+            await interaction.followup.send(message, ephemeral=ephemeral)
         else:
-            await interaction.response.send_message(message)
+            await interaction.response.send_message(message, ephemeral=ephemeral)
     except discord.NotFound:
         print("interaction response skipped: interaction is no longer available", flush=True)
         return False
@@ -210,7 +210,10 @@ async def on_message(message: discord.Message) -> None:
         afk = afk_store.get_afk(message.guild.id if message.guild else None, mentioned_user.id)
         if afk:
             reason = afk.get("reason", DEFAULT_AFK_REASON)
-            await message.reply(f"{message.author.mention}，{mentioned_user.mention} 现在 AFK：{reason}")
+            await message.reply(
+                f"{message.author.mention}，{mentioned_user.mention} 现在 AFK：{reason}",
+                delete_after=20,
+            )
             break
 
     if bot.user and bot.user in message.mentions:
@@ -426,7 +429,7 @@ async def handle_afk(interaction: discord.Interaction, reason: str | None) -> No
         interaction.user.id,
         reason or DEFAULT_AFK_REASON,
     )
-    await respond(interaction, f"{interaction.user.mention} 现在 AFK：{reason or DEFAULT_AFK_REASON}")
+    await respond(interaction, f"{interaction.user.mention} 现在 AFK：{reason or DEFAULT_AFK_REASON}", ephemeral=True)
 
 
 async def handle_leaderboard(interaction: discord.Interaction, category: str) -> None:
