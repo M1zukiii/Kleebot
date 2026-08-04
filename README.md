@@ -39,6 +39,9 @@ docker compose logs -f kleebot
 - `/join` / `/加入` - 让 Kleebot 加入你所在的语音频道。
 - `/queue` - 查看当前播放队列。
 - `/队列` - `/queue` 的中文版本。
+- `/nowplaying` / `/正在播放` - 查看当前歌曲、队列数量、音量、滤镜和循环状态。
+- `/shuffle` / `/打乱` - 打乱当前等待队列。
+- `/repeat mode` / `/循环 mode` - 设置循环模式：`off`, `one`, `queue`。
 - `/skip` - 跳过当前正在播放的歌曲。
 - `/跳过` - `/skip` 的中文版本。
 - `/pause` - 暂停当前播放。
@@ -52,6 +55,7 @@ docker compose logs -f kleebot
 - `/volume percent` - 设置音量，范围 1 到 100。
 - `/音量 percent` - `/volume` 的中文版本。
 - `/filter mode` / `/滤镜 mode` - 设置音频滤镜：`off`, `bassboost`, `nightcore`, `vaporwave`, `karaoke`。
+- `/profile` / `/档案` - 查看你的点歌次数、求签次数和历史最好签。
 - `/help` - 查看 Kleebot 的指令说明。
 - `/帮助` - `/help` 的中文版本。
 - `/fortune` - 抽取今日幸运签。

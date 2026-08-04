@@ -19,6 +19,7 @@ from .fortune import (
 from .fortune_cooldown import FortuneCooldownStore
 from .player import GuildPlayer
 from .resolver import Resolver
+from .stats import ProfileStatsStore
 
 
 load_dotenv()
@@ -45,6 +46,7 @@ HELP_TEXT_FILE = Path(os.getenv("HELP_TEXT_FILE", str(BASE_DIR / "help.txt")))
 FORTUNE_SLIP_IMAGE = ASSETS_DIR / "fortune-slip.webp"
 KLEE_FOOTER_IMAGE = ASSETS_DIR / "klee-footer.jpg"
 fortune_cooldowns = FortuneCooldownStore(DATA_DIR / "fortune_cooldowns.json")
+profile_stats = ProfileStatsStore(DATA_DIR / "profile_stats.json")
 FILTER_CHOICES = [
     app_commands.Choice(name="off", value="off"),
     app_commands.Choice(name="bassboost", value="bassboost"),
@@ -52,13 +54,23 @@ FILTER_CHOICES = [
     app_commands.Choice(name="vaporwave", value="vaporwave"),
     app_commands.Choice(name="karaoke", value="karaoke"),
 ]
+REPEAT_CHOICES = [
+    app_commands.Choice(name="off", value="off"),
+    app_commands.Choice(name="one", value="one"),
+    app_commands.Choice(name="queue", value="queue"),
+]
 
 DEFAULT_HELP_TEXT = """Kleebot 指令：
-`/play` 播放 YouTube / B站 / NicoNico / Spotify 链接，或直接搜索歌曲
-`/queue` 查看队列，`/skip` 跳过，`/pause` 暂停，`/resume` 继续
-`/stop` 停止并清空队列，`/leave` 离开语音频道，`/volume` 调整音量
-`/fortune` 或 `/求签` 抽取今日幸运签
-文字指令：`{PREFIX}play <链接或歌名>`、`{PREFIX}queue`、`{PREFIX}skip`、`{PREFIX}stop`、`{PREFIX}leave`、`{PREFIX}求签`"""
+`/play` / `/播放` 播放 YouTube / B站 / NicoNico / Spotify 链接，或直接搜索歌曲
+`/join` / `/加入` 加入你所在的语音频道
+`/queue` / `/队列` 查看当前播放队列
+`/nowplaying` / `/正在播放` 查看当前歌曲、队列数量、音量、滤镜和循环状态
+`/shuffle` / `/打乱` 打乱当前等待队列
+`/repeat` / `/循环` 设置循环模式：off、one、queue
+`/filter` / `/滤镜` 设置音频滤镜：off、bassboost、nightcore、vaporwave、karaoke
+`/profile` / `/档案` 查看你的点歌次数、求签次数和历史最好签
+`/fortune` / `/求签` 抽取今日幸运签
+文字指令：`{PREFIX}play <链接或歌名>`、`{PREFIX}nowplaying`、`{PREFIX}shuffle`、`{PREFIX}repeat <mode>`、`{PREFIX}filter <mode>`、`{PREFIX}profile`、`{PREFIX}求签`、`{PREFIX}help`"""
 
 
 def get_player(guild: discord.Guild) -> GuildPlayer:
@@ -205,6 +217,7 @@ async def handle_play(interaction: discord.Interaction, query: str) -> None:
             raise RuntimeError("Use this in a server.")
         print(f"play requested in {interaction.guild.id}: {query}", flush=True)
         track = await get_player(interaction.guild).enqueue(interaction, query)
+        profile_stats.record_play(interaction.guild.id, interaction.user.id)
         await respond(interaction, f"Queued: [{track.title}]({track.webpage_url})")
     except Exception as exc:
         await respond(interaction, f"Could not play that: {exc}")
@@ -317,6 +330,52 @@ async def handle_filter(interaction: discord.Interaction, mode: str) -> None:
     await respond(interaction, f"Filter set to `{selected}`. {note}")
 
 
+async def handle_nowplaying(interaction: discord.Interaction) -> None:
+    await defer(interaction)
+    print(f"nowplaying requested in {interaction.guild.id if interaction.guild else 'dm'}", flush=True)
+    if interaction.guild is None:
+        await respond(interaction, "Use this in a server.")
+        return
+    await respond(interaction, get_player(interaction.guild).now_playing_text())
+
+
+async def handle_shuffle(interaction: discord.Interaction) -> None:
+    await defer(interaction)
+    print(f"shuffle requested in {interaction.guild.id if interaction.guild else 'dm'}", flush=True)
+    if interaction.guild is None:
+        await respond(interaction, "Use this in a server.")
+        return
+    count = get_player(interaction.guild).shuffle()
+    await respond(interaction, f"Shuffled {count} queued track(s).")
+
+
+async def handle_repeat(interaction: discord.Interaction, mode: str) -> None:
+    await defer(interaction)
+    print(f"repeat requested in {interaction.guild.id if interaction.guild else 'dm'}: {mode}", flush=True)
+    if interaction.guild is None:
+        await respond(interaction, "Use this in a server.")
+        return
+    try:
+        selected = get_player(interaction.guild).set_repeat(mode)
+    except ValueError as exc:
+        await respond(interaction, str(exc))
+        return
+    await respond(interaction, f"Repeat set to `{selected}`.")
+
+
+async def handle_profile(interaction: discord.Interaction) -> None:
+    await defer(interaction)
+    print(f"profile requested in {interaction.guild.id if interaction.guild else 'dm'}", flush=True)
+    await respond(
+        interaction,
+        profile_stats.profile_text(
+            interaction.guild.id if interaction.guild else None,
+            interaction.user.id,
+            interaction.user.display_name,
+        ),
+    )
+
+
 @bot.tree.command(name="play", description="Play a YouTube, Bilibili, NicoNico, Spotify link, or search query.")
 @app_commands.describe(query="Song name, search text, or a YouTube, Bilibili, NicoNico, Spotify link")
 async def slash_play(interaction: discord.Interaction, query: str) -> None:
@@ -423,6 +482,50 @@ async def slash_filter_cn(interaction: discord.Interaction, mode: app_commands.C
     await handle_filter(interaction, mode.value)
 
 
+@bot.tree.command(name="nowplaying", description="Show the current track and player status.")
+async def slash_nowplaying(interaction: discord.Interaction) -> None:
+    await handle_nowplaying(interaction)
+
+
+@bot.tree.command(name="正在播放", description="查看当前歌曲和播放器状态。")
+async def slash_nowplaying_cn(interaction: discord.Interaction) -> None:
+    await handle_nowplaying(interaction)
+
+
+@bot.tree.command(name="shuffle", description="Shuffle the queued tracks.")
+async def slash_shuffle(interaction: discord.Interaction) -> None:
+    await handle_shuffle(interaction)
+
+
+@bot.tree.command(name="打乱", description="打乱当前等待队列。")
+async def slash_shuffle_cn(interaction: discord.Interaction) -> None:
+    await handle_shuffle(interaction)
+
+
+@bot.tree.command(name="repeat", description="Set repeat mode.")
+@app_commands.describe(mode="Repeat mode")
+@app_commands.choices(mode=REPEAT_CHOICES)
+async def slash_repeat(interaction: discord.Interaction, mode: app_commands.Choice[str]) -> None:
+    await handle_repeat(interaction, mode.value)
+
+
+@bot.tree.command(name="循环", description="设置循环模式。")
+@app_commands.describe(mode="循环模式")
+@app_commands.choices(mode=REPEAT_CHOICES)
+async def slash_repeat_cn(interaction: discord.Interaction, mode: app_commands.Choice[str]) -> None:
+    await handle_repeat(interaction, mode.value)
+
+
+@bot.tree.command(name="profile", description="Show your Kleebot profile.")
+async def slash_profile(interaction: discord.Interaction) -> None:
+    await handle_profile(interaction)
+
+
+@bot.tree.command(name="档案", description="查看你的 Kleebot 档案。")
+async def slash_profile_cn(interaction: discord.Interaction) -> None:
+    await handle_profile(interaction)
+
+
 @bot.tree.command(name="help", description="Show Kleebot command help.")
 async def slash_help(interaction: discord.Interaction) -> None:
     await respond_help(interaction)
@@ -443,6 +546,7 @@ async def slash_fortune(interaction: discord.Interaction) -> None:
         return
     result = draw_daily_fortune(user_id=interaction.user.id, guild_id=interaction.guild.id if interaction.guild else None)
     fortune_cooldowns.mark_used(interaction.guild.id if interaction.guild else None, interaction.user.id)
+    profile_stats.record_fortune(interaction.guild.id if interaction.guild else None, interaction.user.id, result.label, result.luck_delta)
     embed = build_fortune_embed(interaction.user, interaction.guild, result)
     view = FortuneRerollView(interaction.user, interaction.guild, result) if result.can_reroll else None
     await respond_embed(interaction, embed, fortune_files(), view)
@@ -458,6 +562,7 @@ async def slash_qiuqian_cn(interaction: discord.Interaction) -> None:
         return
     result = draw_daily_fortune(user_id=interaction.user.id, guild_id=interaction.guild.id if interaction.guild else None)
     fortune_cooldowns.mark_used(interaction.guild.id if interaction.guild else None, interaction.user.id)
+    profile_stats.record_fortune(interaction.guild.id if interaction.guild else None, interaction.user.id, result.label, result.luck_delta)
     embed = build_fortune_embed(interaction.user, interaction.guild, result)
     view = FortuneRerollView(interaction.user, interaction.guild, result) if result.can_reroll else None
     await respond_embed(interaction, embed, fortune_files(), view)
@@ -471,6 +576,7 @@ async def prefix_play(ctx: commands.Context, *, query: str) -> None:
     message = await ctx.send("Resolving...")
     try:
         track = await get_player(ctx.guild).enqueue(interaction, query)
+        profile_stats.record_play(ctx.guild.id, ctx.author.id)
         await message.edit(content=f"Queued: {track.title}\n{track.webpage_url}")
     except Exception as exc:
         await message.edit(content=f"Could not play that: {exc}")
@@ -535,6 +641,36 @@ async def prefix_filter(ctx: commands.Context, mode: str) -> None:
     await ctx.send(f"Filter set to `{selected}`. It will apply from the next track.")
 
 
+@bot.command(name="nowplaying", aliases=["np", "正在播放"])
+async def prefix_nowplaying(ctx: commands.Context) -> None:
+    if ctx.guild:
+        await ctx.send(get_player(ctx.guild).now_playing_text())
+
+
+@bot.command(name="shuffle", aliases=["打乱"])
+async def prefix_shuffle(ctx: commands.Context) -> None:
+    if ctx.guild:
+        count = get_player(ctx.guild).shuffle()
+        await ctx.send(f"Shuffled {count} queued track(s).")
+
+
+@bot.command(name="repeat", aliases=["循环"])
+async def prefix_repeat(ctx: commands.Context, mode: str) -> None:
+    if ctx.guild is None:
+        return
+    try:
+        selected = get_player(ctx.guild).set_repeat(mode)
+    except ValueError as exc:
+        await ctx.send(str(exc))
+        return
+    await ctx.send(f"Repeat set to `{selected}`.")
+
+
+@bot.command(name="profile", aliases=["档案"])
+async def prefix_profile(ctx: commands.Context) -> None:
+    await ctx.send(profile_stats.profile_text(ctx.guild.id if ctx.guild else None, ctx.author.id, ctx.author.display_name))
+
+
 @bot.command(name="help")
 async def prefix_help(ctx: commands.Context) -> None:
     for chunk in split_discord_message(load_help_text()):
@@ -549,6 +685,7 @@ async def prefix_qiuqian(ctx: commands.Context) -> None:
         return
     result = draw_daily_fortune(user_id=ctx.author.id, guild_id=ctx.guild.id if ctx.guild else None)
     fortune_cooldowns.mark_used(ctx.guild.id if ctx.guild else None, ctx.author.id)
+    profile_stats.record_fortune(ctx.guild.id if ctx.guild else None, ctx.author.id, result.label, result.luck_delta)
     view = FortuneRerollView(ctx.author, ctx.guild, result) if result.can_reroll else None
     await ctx.send(embed=build_fortune_embed(ctx.author, ctx.guild, result), files=fortune_files(), view=view)
 
@@ -602,6 +739,7 @@ class FortuneRerollView(discord.ui.View):
             user_id=interaction.user.id,
             guild_id=self.guild.id if self.guild else None,
         )
+        profile_stats.record_fortune(self.guild.id if self.guild else None, interaction.user.id, second.label, second.luck_delta)
         embed = build_fortune_embed(interaction.user, self.guild, second)
         button.disabled = True
         button.label = "已重抽"

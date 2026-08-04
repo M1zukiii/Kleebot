@@ -1,5 +1,6 @@
 import asyncio
 import os
+import random
 from collections import deque
 from dataclasses import dataclass, field
 
@@ -32,6 +33,8 @@ class GuildPlayer:
     current: Track | None = None
     volume: float = 0.35
     audio_filter: str = "off"
+    repeat_mode: str = "off"
+    skip_requested: bool = False
     lock: asyncio.Lock = field(default_factory=asyncio.Lock)
 
     async def enqueue(self, interaction: discord.Interaction, query: str) -> Track:
@@ -82,7 +85,17 @@ class GuildPlayer:
         def after(error: Exception | None) -> None:
             if error:
                 print(f"playback error: {error}", flush=True)
-            self._cleanup_track(played_track)
+            should_requeue = False
+            if not self.skip_requested:
+                if self.repeat_mode == "one":
+                    self.queue.appendleft(played_track)
+                    should_requeue = True
+                elif self.repeat_mode == "queue":
+                    self.queue.append(played_track)
+                    should_requeue = True
+            self.skip_requested = False
+            if not should_requeue:
+                self._cleanup_track(played_track)
             fut = asyncio.run_coroutine_threadsafe(self._play_next(voice_client), self.bot.loop)
             try:
                 fut.result()
@@ -135,6 +148,7 @@ class GuildPlayer:
     def skip(self, guild: discord.Guild) -> bool:
         voice_client = guild.voice_client
         if voice_client and voice_client.is_playing():
+            self.skip_requested = True
             voice_client.stop()
             return True
         return False
@@ -143,7 +157,39 @@ class GuildPlayer:
         count = len(self.queue)
         self.queue.clear()
         self.current = None
+        self.skip_requested = True
         return count
+
+    def shuffle(self) -> int:
+        tracks = list(self.queue)
+        random.shuffle(tracks)
+        self.queue = deque(tracks)
+        return len(self.queue)
+
+    def set_repeat(self, mode: str) -> str:
+        normalized = mode.lower().strip()
+        if normalized in {"none", "clear", "reset", "关闭", "关"}:
+            normalized = "off"
+        if normalized not in {"off", "one", "queue"}:
+            raise ValueError("Unknown repeat mode. Choose one of: off, one, queue")
+        self.repeat_mode = normalized
+        return normalized
+
+    def now_playing_text(self) -> str:
+        lines: list[str] = []
+        if self.current:
+            duration = self._format_duration(self.current.duration)
+            lines.append(f"Now: {self.current.title}")
+            lines.append(f"Requested by: {self.current.requester}")
+            if duration:
+                lines.append(f"Duration: {duration}")
+        else:
+            lines.append("Nothing is playing.")
+        lines.append(f"Queue: {len(self.queue)} track(s)")
+        lines.append(f"Volume: {round(self.volume * 100)}%")
+        lines.append(f"Filter: {self.audio_filter}")
+        lines.append(f"Repeat: {self.repeat_mode}")
+        return "\n".join(lines)
 
     def queue_text(self) -> str:
         lines: list[str] = []
@@ -155,3 +201,13 @@ class GuildPlayer:
             if len(self.queue) > 10:
                 lines.append(f"...and {len(self.queue) - 10} more")
         return "\n".join(lines) or "Queue is empty."
+
+    @staticmethod
+    def _format_duration(seconds: int | None) -> str:
+        if not seconds:
+            return ""
+        minutes, secs = divmod(int(seconds), 60)
+        hours, minutes = divmod(minutes, 60)
+        if hours:
+            return f"{hours}:{minutes:02d}:{secs:02d}"
+        return f"{minutes}:{secs:02d}"
