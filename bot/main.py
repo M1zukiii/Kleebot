@@ -19,7 +19,7 @@ from .fortune import (
 from .fortune_cooldown import FortuneCooldownStore
 from .player import GuildPlayer
 from .resolver import Resolver
-from .afk import AfkStore
+from .afk import DEFAULT_AFK_REASON, AfkStore
 from .stats import ProfileStatsStore
 
 
@@ -209,7 +209,7 @@ async def on_message(message: discord.Message) -> None:
             continue
         afk = afk_store.get_afk(message.guild.id if message.guild else None, mentioned_user.id)
         if afk:
-            reason = afk.get("reason", "AFK")
+            reason = afk.get("reason", DEFAULT_AFK_REASON)
             await message.reply(f"{message.author.mention}，{mentioned_user.mention} 现在 AFK：{reason}")
             break
 
@@ -424,9 +424,9 @@ async def handle_afk(interaction: discord.Interaction, reason: str | None) -> No
     afk_store.set_afk(
         interaction.guild.id if interaction.guild else None,
         interaction.user.id,
-        reason or "AFK",
+        reason or DEFAULT_AFK_REASON,
     )
-    await respond(interaction, f"{interaction.user.mention} 现在 AFK：{reason or 'AFK'}")
+    await respond(interaction, f"{interaction.user.mention} 现在 AFK：{reason or DEFAULT_AFK_REASON}")
 
 
 async def handle_leaderboard(interaction: discord.Interaction, category: str) -> None:
@@ -820,7 +820,7 @@ async def prefix_nickname(ctx: commands.Context, *, name: str = "") -> None:
 
 
 @bot.command(name="afk", aliases=["离开状态"])
-async def prefix_afk(ctx: commands.Context, *, reason: str = "AFK") -> None:
+async def prefix_afk(ctx: commands.Context, *, reason: str = DEFAULT_AFK_REASON) -> None:
     afk_store.set_afk(ctx.guild.id if ctx.guild else None, ctx.author.id, reason)
     await ctx.send(f"{ctx.author.mention} 现在 AFK：{reason}")
 

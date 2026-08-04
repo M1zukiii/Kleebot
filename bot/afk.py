@@ -4,6 +4,9 @@ from pathlib import Path
 from typing import Any
 
 
+DEFAULT_AFK_REASON = "被关禁闭了"
+
+
 class AfkStore:
     def __init__(self, path: Path) -> None:
         self.path = path
@@ -12,7 +15,7 @@ class AfkStore:
         data = self._load()
         guild = self._guild(data, guild_id)
         guild[str(user_id)] = {
-            "reason": reason.strip() or "AFK",
+            "reason": reason.strip() or DEFAULT_AFK_REASON,
             "since": datetime.now(timezone.utc).isoformat(),
         }
         self._save(data)
