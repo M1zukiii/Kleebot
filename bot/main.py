@@ -47,7 +47,7 @@ FORTUNE_SLIP_IMAGE = ASSETS_DIR / "fortune-slip.webp"
 KLEE_FOOTER_IMAGE = ASSETS_DIR / "klee-footer.jpg"
 fortune_cooldowns = FortuneCooldownStore(DATA_DIR / "fortune_cooldowns.json")
 profile_stats = ProfileStatsStore(DATA_DIR / "profile_stats.json")
-KLEE_REEE_EMOTE_ID = 816883329583808612
+KLEE_REEE_EMOTE_ID = 1534067915089903727
 FILTER_CHOICES = [
     app_commands.Choice(name="off", value="off"),
     app_commands.Choice(name="bassboost", value="bassboost"),
