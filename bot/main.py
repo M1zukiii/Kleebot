@@ -1,5 +1,6 @@
 import asyncio
 import os
+from collections import defaultdict, deque
 from pathlib import Path
 
 import discord
@@ -42,6 +43,7 @@ bot = commands.Bot(command_prefix=PREFIX, intents=intents, help_command=None)
 resolver = Resolver()
 klee_ai = KleeAI()
 players: dict[int, GuildPlayer] = {}
+chat_context: dict[int, deque[tuple[str, str]]] = defaultdict(lambda: deque(maxlen=int(os.getenv("KLEE_CONTEXT_MESSAGES", "6"))))
 BASE_DIR = Path(__file__).resolve().parent.parent
 ASSETS_DIR = BASE_DIR / "assets"
 DATA_DIR = Path("/app/data") if Path("/app").exists() else Path(__file__).resolve().parent.parent / "data"
@@ -72,6 +74,7 @@ LEADERBOARD_CHOICES = [
     app_commands.Choice(name="luck", value="luck"),
     app_commands.Choice(name="bombed", value="bombed"),
 ]
+KLEE_CONTEXT_CHARS = int(os.getenv("KLEE_CONTEXT_CHARS", "900"))
 
 DEFAULT_HELP_TEXT = """Kleebot 指令：
 `/play` / `/播放` 播放 YouTube / B站 / NicoNico / Spotify 链接，或直接搜索歌曲
@@ -123,6 +126,25 @@ def split_discord_message(text: str, limit: int = 1900) -> list[str]:
     if current:
         chunks.append(current.rstrip())
     return chunks or [text[:limit]]
+
+
+def channel_context(channel_id: int) -> list[str]:
+    lines: list[str] = []
+    total = 0
+    for author, content in reversed(chat_context[channel_id]):
+        line = f"{author}: {content}"
+        if total + len(line) > KLEE_CONTEXT_CHARS:
+            break
+        lines.append(line)
+        total += len(line)
+    return list(reversed(lines))
+
+
+def remember_channel_message(channel_id: int, author: str, content: str) -> None:
+    clean = " ".join(content.strip().split())
+    if not clean:
+        return
+    chat_context[channel_id].append((author[:32], clean[:220]))
 
 
 async def respond(interaction: discord.Interaction, message: str, ephemeral: bool = False) -> bool:
@@ -233,8 +255,21 @@ async def on_message(message: discord.Message) -> None:
             user_name=message.author.display_name,
             message=mention_text,
             image_urls=image_urls,
+            context=channel_context(message.channel.id),
         )
         await message.reply(f"{message.author.mention} {reply}")
+        remembered_text = mention_text
+        if image_urls:
+            remembered_text = f"{remembered_text} [图片 x{len(image_urls[:4])}]"
+        remember_channel_message(message.channel.id, message.author.display_name, remembered_text)
+        remember_channel_message(message.channel.id, "Klee", reply)
+    elif not message.content.startswith(PREFIX):
+        remembered_text = message.clean_content
+        if message.attachments:
+            image_count = sum(1 for attachment in message.attachments if (attachment.content_type or "").lower().startswith("image/"))
+            if image_count:
+                remembered_text = f"{remembered_text} [图片 x{image_count}]"
+        remember_channel_message(message.channel.id, message.author.display_name, remembered_text)
 
     await bot.process_commands(message)
 

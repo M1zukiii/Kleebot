@@ -41,15 +41,25 @@ class KleeAI:
             return KLEE_SYSTEM_PROMPT
         return prompt or KLEE_SYSTEM_PROMPT
 
-    async def reply(self, *, user_name: str, message: str, image_urls: list[str] | None = None) -> str:
+    async def reply(
+        self,
+        *,
+        user_name: str,
+        message: str,
+        image_urls: list[str] | None = None,
+        context: list[str] | None = None,
+    ) -> str:
         if not self.enabled:
             return FALLBACK_REPLY
 
+        context_text = "\n".join(context or [])
         text_prompt = (
             f"Discord 用户 {user_name} 对 Klee 说：\n"
             f"{message.strip() or '只是在叫 Klee。'}\n\n"
             "请用 Klee 的人设直接回复这个用户。"
         )
+        if context_text:
+            text_prompt += f"\n\n这是同一频道最近的少量聊天上下文，只在有帮助时参考，不要逐字复述：\n{context_text}"
         if image_urls:
             text_prompt += "\n如果用户附带了图片，请先看图片内容，再自然地一起回应。"
 
