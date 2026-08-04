@@ -51,6 +51,7 @@ profile_stats = ProfileStatsStore(DATA_DIR / "profile_stats.json")
 afk_store = AfkStore(DATA_DIR / "afk.json")
 KLEE_REEE_EMOTE_ID = 1534067915089903727
 KLEE_MENTION_REPLY = "西风骑士团，「火花骑士」，Klee，前来报到！…呃—后面该说什么词来着？Klee背不下来啦..."
+NO_BOMBS_MESSAGE = "荣誉骑士你现在没有炸弹哦~等Klee做好了炸弹分给你吧~"
 FILTER_CHOICES = [
     app_commands.Choice(name="off", value="off"),
     app_commands.Choice(name="bassboost", value="bassboost"),
@@ -447,12 +448,19 @@ async def handle_leaderboard(interaction: discord.Interaction, category: str) ->
 async def handle_bomb(interaction: discord.Interaction, target: discord.abc.User) -> None:
     await defer(interaction)
     print(f"bomb requested in {interaction.guild.id if interaction.guild else 'dm'}: {target.id}", flush=True)
+    spent, bombs_left = profile_stats.spend_bomb(
+        interaction.guild.id if interaction.guild else None,
+        interaction.user.id,
+    )
+    if not spent:
+        await respond(interaction, NO_BOMBS_MESSAGE, ephemeral=True)
+        return
     if bot.user and target.id == bot.user.id:
         profile_stats.record_bombed(interaction.guild.id if interaction.guild else None, interaction.user.id)
-        await respond(interaction, f"{interaction.user.mention} 你的妈妈也是魔女吗敢这么和Klee说话。\n{bomb_text(interaction.user)}")
+        await respond(interaction, f"{interaction.user.mention} 你的妈妈也是魔女吗敢这么和Klee说话。\n{bomb_text(interaction.user)}\n剩余炸弹：{bombs_left}")
         return
     profile_stats.record_bombed(interaction.guild.id if interaction.guild else None, target.id)
-    await respond(interaction, bomb_text(target))
+    await respond(interaction, f"{bomb_text(target)}\n剩余炸弹：{bombs_left}")
 
 
 def bomb_text(target: discord.abc.User) -> str:
@@ -692,7 +700,9 @@ async def slash_fortune(interaction: discord.Interaction) -> None:
     result = draw_daily_fortune(user_id=interaction.user.id, guild_id=interaction.guild.id if interaction.guild else None)
     fortune_cooldowns.mark_used(interaction.guild.id if interaction.guild else None, interaction.user.id)
     profile_stats.record_fortune(interaction.guild.id if interaction.guild else None, interaction.user.id, result.label, result.luck_delta)
+    _, bombs = profile_stats.claim_daily_bombs(interaction.guild.id if interaction.guild else None, interaction.user.id)
     embed = build_fortune_embed(interaction.user, interaction.guild, result)
+    embed.add_field(name="签到", value=f"Klee做好了 3 个炸弹分给你啦！你现在有 {bombs} 个炸弹。", inline=False)
     view = FortuneRerollView(interaction.user, interaction.guild, result) if result.can_reroll else None
     await respond_embed(interaction, embed, fortune_files(), view)
 
@@ -708,7 +718,9 @@ async def slash_qiuqian_cn(interaction: discord.Interaction) -> None:
     result = draw_daily_fortune(user_id=interaction.user.id, guild_id=interaction.guild.id if interaction.guild else None)
     fortune_cooldowns.mark_used(interaction.guild.id if interaction.guild else None, interaction.user.id)
     profile_stats.record_fortune(interaction.guild.id if interaction.guild else None, interaction.user.id, result.label, result.luck_delta)
+    _, bombs = profile_stats.claim_daily_bombs(interaction.guild.id if interaction.guild else None, interaction.user.id)
     embed = build_fortune_embed(interaction.user, interaction.guild, result)
+    embed.add_field(name="签到", value=f"Klee做好了 3 个炸弹分给你啦！你现在有 {bombs} 个炸弹。", inline=False)
     view = FortuneRerollView(interaction.user, interaction.guild, result) if result.can_reroll else None
     await respond_embed(interaction, embed, fortune_files(), view)
 
@@ -845,12 +857,16 @@ async def prefix_leaderboard(ctx: commands.Context, category: str = "plays") -> 
 
 @bot.command(name="bomb", aliases=["炸弹"])
 async def prefix_bomb(ctx: commands.Context, target: discord.Member) -> None:
+    spent, bombs_left = profile_stats.spend_bomb(ctx.guild.id if ctx.guild else None, ctx.author.id)
+    if not spent:
+        await ctx.send(NO_BOMBS_MESSAGE)
+        return
     if bot.user and target.id == bot.user.id:
         profile_stats.record_bombed(ctx.guild.id if ctx.guild else None, ctx.author.id)
-        await ctx.send(f"{ctx.author.mention} 你的妈妈也是魔女吗敢这么和Klee说话。\n{bomb_text(ctx.author)}")
+        await ctx.send(f"{ctx.author.mention} 你的妈妈也是魔女吗敢这么和Klee说话。\n{bomb_text(ctx.author)}\n剩余炸弹：{bombs_left}")
         return
     profile_stats.record_bombed(ctx.guild.id if ctx.guild else None, target.id)
-    await ctx.send(bomb_text(target))
+    await ctx.send(f"{bomb_text(target)}\n剩余炸弹：{bombs_left}")
 
 
 @bot.command(name="help")
@@ -868,8 +884,11 @@ async def prefix_qiuqian(ctx: commands.Context) -> None:
     result = draw_daily_fortune(user_id=ctx.author.id, guild_id=ctx.guild.id if ctx.guild else None)
     fortune_cooldowns.mark_used(ctx.guild.id if ctx.guild else None, ctx.author.id)
     profile_stats.record_fortune(ctx.guild.id if ctx.guild else None, ctx.author.id, result.label, result.luck_delta)
+    _, bombs = profile_stats.claim_daily_bombs(ctx.guild.id if ctx.guild else None, ctx.author.id)
     view = FortuneRerollView(ctx.author, ctx.guild, result) if result.can_reroll else None
-    await ctx.send(embed=build_fortune_embed(ctx.author, ctx.guild, result), files=fortune_files(), view=view)
+    embed = build_fortune_embed(ctx.author, ctx.guild, result)
+    embed.add_field(name="签到", value=f"Klee做好了 3 个炸弹分给你啦！你现在有 {bombs} 个炸弹。", inline=False)
+    await ctx.send(embed=embed, files=fortune_files(), view=view)
 
 
 def fortune_files() -> list[discord.File]:

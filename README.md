@@ -59,11 +59,11 @@ docker compose logs -f kleebot
 - `/nickname name` / `/称呼 name` - 设置或清除 Klee 对你的称呼。
 - `/afk reason` / `/离开状态 reason` - 设置 AFK 状态，别人 @ 你时 Kleebot 会提醒。
 - `/leaderboard category` / `/排行榜 category` - 查看排行榜：`plays`, `fortunes`, `luck`, `bombed`。
-- `/bomb target` / `/炸弹 target` - 让 Klee 炸一个目标。
+- `/bomb target` / `/炸弹 target` - 消耗 1 个炸弹，让 Klee 炸一个目标。
 - `/help` - 查看 Kleebot 的指令说明。
 - `/帮助` - `/help` 的中文版本。
-- `/fortune` - 抽取今日幸运签。
-- `/求签` - 抽取今日幸运签。
+- `/fortune` - 抽取今日幸运签，并领取 3 个炸弹。
+- `/求签` - 抽取今日幸运签，并领取 3 个炸弹。
 
 Prefix examples:
 

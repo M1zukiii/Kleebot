@@ -1,4 +1,5 @@
 import json
+from datetime import UTC, datetime, time, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -28,6 +29,28 @@ class ProfileStatsStore:
         profile["bombed"] = int(profile.get("bombed", 0)) + 1
         self._save(data)
 
+    def claim_daily_bombs(self, guild_id: int | None, user_id: int) -> tuple[bool, int]:
+        period = self._daily_period_key()
+        data = self._load()
+        profile = self._profile(data, guild_id, user_id)
+        if profile.get("last_daily") == period:
+            return False, int(profile.get("bombs", 0))
+        profile["last_daily"] = period
+        profile["bombs"] = int(profile.get("bombs", 0)) + 3
+        self._save(data)
+        return True, int(profile["bombs"])
+
+    def spend_bomb(self, guild_id: int | None, user_id: int) -> tuple[bool, int]:
+        data = self._load()
+        profile = self._profile(data, guild_id, user_id)
+        bombs = int(profile.get("bombs", 0))
+        if bombs <= 0:
+            return False, 0
+        bombs -= 1
+        profile["bombs"] = bombs
+        self._save(data)
+        return True, bombs
+
     def set_nickname(self, guild_id: int | None, user_id: int, nickname: str) -> str:
         nickname = nickname.strip()
         if len(nickname) > 32:
@@ -55,6 +78,7 @@ class ProfileStatsStore:
         plays = int(profile.get("plays", 0))
         fortunes = int(profile.get("fortunes", 0))
         bombed = int(profile.get("bombed", 0))
+        bombs = int(profile.get("bombs", 0))
         best = profile.get("best_fortune")
         if isinstance(best, dict):
             best_text = f"{best.get('label', '未知')}（{float(best.get('luck_delta', 0)):.3f}%）"
@@ -65,6 +89,7 @@ class ProfileStatsStore:
             f"称呼：{shown_name}\n"
             f"点歌次数：{plays}\n"
             f"求签次数：{fortunes}\n"
+            f"炸弹数量：{bombs}\n"
             f"被炸次数：{bombed}\n"
             f"历史最好签：{best_text}"
         )
@@ -119,6 +144,13 @@ class ProfileStatsStore:
         guild = guilds.get(guild_key, {}) if isinstance(guilds, dict) else {}
         users = guild.get("users", {}) if isinstance(guild, dict) else {}
         return users if isinstance(users, dict) else {}
+
+    @staticmethod
+    def _daily_period_key() -> str:
+        now = datetime.now(UTC)
+        reset_at = datetime.combine(now.date(), time(hour=9, tzinfo=UTC))
+        period_date = now.date() if now >= reset_at else now.date() - timedelta(days=1)
+        return period_date.isoformat()
 
     def _rank_numeric(self, users: dict[str, Any], field: str, limit: int) -> list[tuple[str, int]]:
         entries: list[tuple[str, int]] = []
