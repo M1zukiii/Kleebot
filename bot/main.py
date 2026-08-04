@@ -50,6 +50,7 @@ fortune_cooldowns = FortuneCooldownStore(DATA_DIR / "fortune_cooldowns.json")
 profile_stats = ProfileStatsStore(DATA_DIR / "profile_stats.json")
 afk_store = AfkStore(DATA_DIR / "afk.json")
 KLEE_REEE_EMOTE_ID = 1534067915089903727
+KLEE_MENTION_REPLY = "西风骑士团，「火花骑士」，Klee，前来报到！…呃—后面该说什么词来着？Klee背不下来啦..."
 FILTER_CHOICES = [
     app_commands.Choice(name="off", value="off"),
     app_commands.Choice(name="bassboost", value="bassboost"),
@@ -217,7 +218,7 @@ async def on_message(message: discord.Message) -> None:
             break
 
     if bot.user and bot.user in message.mentions:
-        await message.reply(f"{message.author.mention} 你的妈妈也是魔女吗敢这么和Klee说话。")
+        await message.reply(f"{message.author.mention} {KLEE_MENTION_REPLY}")
 
     await bot.process_commands(message)
 
@@ -446,16 +447,22 @@ async def handle_leaderboard(interaction: discord.Interaction, category: str) ->
 async def handle_bomb(interaction: discord.Interaction, target: discord.abc.User) -> None:
     await defer(interaction)
     print(f"bomb requested in {interaction.guild.id if interaction.guild else 'dm'}: {target.id}", flush=True)
+    if bot.user and target.id == bot.user.id:
+        profile_stats.record_bombed(interaction.guild.id if interaction.guild else None, interaction.user.id)
+        await respond(interaction, f"{interaction.user.mention} 你的妈妈也是魔女吗敢这么和Klee说话。\n{bomb_text(interaction.user)}")
+        return
     profile_stats.record_bombed(interaction.guild.id if interaction.guild else None, target.id)
+    await respond(interaction, bomb_text(target))
+
+
+def bomb_text(target: discord.abc.User) -> str:
     emote = bot.get_emoji(KLEE_REEE_EMOTE_ID)
     if emote is None:
-        await respond(
-            interaction,
+        return (
             f"Klee炸死 {target.mention} 你这个王八蛋\n"
             "KleeREEE 表情发不出来：bot 当前看不到这个自定义表情。"
         )
-        return
-    await respond(interaction, f"Klee炸死 {target.mention} 你这个王八蛋{emote}{emote}{emote}")
+    return f"Klee炸死 {target.mention} 你这个王八蛋{emote}{emote}{emote}"
 
 
 @bot.tree.command(name="play", description="Play a YouTube, Bilibili, NicoNico, Spotify link, or search query.")
@@ -838,15 +845,12 @@ async def prefix_leaderboard(ctx: commands.Context, category: str = "plays") -> 
 
 @bot.command(name="bomb", aliases=["炸弹"])
 async def prefix_bomb(ctx: commands.Context, target: discord.Member) -> None:
-    profile_stats.record_bombed(ctx.guild.id if ctx.guild else None, target.id)
-    emote = bot.get_emoji(KLEE_REEE_EMOTE_ID)
-    if emote is None:
-        await ctx.send(
-            f"Klee炸死 {target.mention} 你这个王八蛋\n"
-            "KleeREEE 表情发不出来：bot 当前看不到这个自定义表情。"
-        )
+    if bot.user and target.id == bot.user.id:
+        profile_stats.record_bombed(ctx.guild.id if ctx.guild else None, ctx.author.id)
+        await ctx.send(f"{ctx.author.mention} 你的妈妈也是魔女吗敢这么和Klee说话。\n{bomb_text(ctx.author)}")
         return
-    await ctx.send(f"Klee炸死 {target.mention} 你这个王八蛋{emote}{emote}{emote}")
+    profile_stats.record_bombed(ctx.guild.id if ctx.guild else None, target.id)
+    await ctx.send(bomb_text(target))
 
 
 @bot.command(name="help")
