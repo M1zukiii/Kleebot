@@ -210,7 +210,7 @@ async def on_message(message: discord.Message) -> None:
         afk = afk_store.get_afk(message.guild.id if message.guild else None, mentioned_user.id)
         if afk:
             reason = afk.get("reason", "AFK")
-            await message.reply(f"{mentioned_user.mention} 现在 AFK：{reason}")
+            await message.reply(f"{message.author.mention}，{mentioned_user.mention} 现在 AFK：{reason}")
             break
 
     if bot.user and bot.user in message.mentions:
