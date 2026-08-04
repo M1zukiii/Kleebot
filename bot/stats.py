@@ -28,9 +28,30 @@ class ProfileStatsStore:
         profile["bombed"] = int(profile.get("bombed", 0)) + 1
         self._save(data)
 
+    def set_nickname(self, guild_id: int | None, user_id: int, nickname: str) -> str:
+        nickname = nickname.strip()
+        if len(nickname) > 32:
+            raise ValueError("Nickname must be 32 characters or less.")
+        data = self._load()
+        profile = self._profile(data, guild_id, user_id)
+        if nickname:
+            profile["nickname"] = nickname
+        else:
+            profile.pop("nickname", None)
+        self._save(data)
+        return nickname
+
+    def display_name(self, guild_id: int | None, user_id: int, fallback: str) -> str:
+        data = self._load()
+        profile = self._profile(data, guild_id, user_id, create=False)
+        nickname = profile.get("nickname")
+        return str(nickname) if nickname else fallback
+
     def profile_text(self, guild_id: int | None, user_id: int, display_name: str) -> str:
         data = self._load()
         profile = self._profile(data, guild_id, user_id, create=False)
+        nickname = profile.get("nickname")
+        shown_name = str(nickname) if nickname else display_name
         plays = int(profile.get("plays", 0))
         fortunes = int(profile.get("fortunes", 0))
         bombed = int(profile.get("bombed", 0))
@@ -40,7 +61,8 @@ class ProfileStatsStore:
         else:
             best_text = "还没有记录"
         return (
-            f"{display_name} 的 Kleebot 档案\n"
+            f"{shown_name} 的 Kleebot 档案\n"
+            f"称呼：{shown_name}\n"
             f"点歌次数：{plays}\n"
             f"求签次数：{fortunes}\n"
             f"被炸次数：{bombed}\n"

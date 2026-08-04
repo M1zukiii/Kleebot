@@ -19,6 +19,7 @@ from .fortune import (
 from .fortune_cooldown import FortuneCooldownStore
 from .player import GuildPlayer
 from .resolver import Resolver
+from .afk import AfkStore
 from .stats import ProfileStatsStore
 
 
@@ -47,6 +48,7 @@ FORTUNE_SLIP_IMAGE = ASSETS_DIR / "fortune-slip.webp"
 KLEE_FOOTER_IMAGE = ASSETS_DIR / "klee-footer.jpg"
 fortune_cooldowns = FortuneCooldownStore(DATA_DIR / "fortune_cooldowns.json")
 profile_stats = ProfileStatsStore(DATA_DIR / "profile_stats.json")
+afk_store = AfkStore(DATA_DIR / "afk.json")
 KLEE_REEE_EMOTE_ID = 1534067915089903727
 FILTER_CHOICES = [
     app_commands.Choice(name="off", value="off"),
@@ -76,9 +78,11 @@ DEFAULT_HELP_TEXT = """Kleebot 指令：
 `/repeat` / `/循环` 设置循环模式：off、one、queue
 `/filter` / `/滤镜` 设置音频滤镜：off、bassboost、nightcore、vaporwave、karaoke
 `/profile` / `/档案` 查看你的点歌次数、求签次数和历史最好签
+`/nickname` / `/称呼` 设置 Klee 对你的称呼
+`/afk` / `/离开状态` 设置 AFK 状态，别人 @ 你时 Klee 会提醒
 `/leaderboard` / `/排行榜` 查看排行榜：plays、fortunes、luck、bombed
 `/fortune` / `/求签` 抽取今日幸运签
-文字指令：`{PREFIX}play <链接或歌名>`、`{PREFIX}nowplaying`、`{PREFIX}shuffle`、`{PREFIX}repeat <mode>`、`{PREFIX}filter <mode>`、`{PREFIX}profile`、`{PREFIX}leaderboard <category>`、`{PREFIX}求签`、`{PREFIX}help`"""
+文字指令：`{PREFIX}play <链接或歌名>`、`{PREFIX}nowplaying`、`{PREFIX}shuffle`、`{PREFIX}repeat <mode>`、`{PREFIX}filter <mode>`、`{PREFIX}profile`、`{PREFIX}nickname <称呼>`、`{PREFIX}afk <原因>`、`{PREFIX}leaderboard <category>`、`{PREFIX}求签`、`{PREFIX}help`"""
 
 
 def get_player(guild: discord.Guild) -> GuildPlayer:
@@ -196,6 +200,18 @@ async def on_ready() -> None:
 async def on_message(message: discord.Message) -> None:
     if message.author.bot:
         return
+
+    if afk_store.clear_afk(message.guild.id if message.guild else None, message.author.id):
+        await message.reply("欢迎回来，Klee已经帮你取消 AFK 啦。")
+
+    for mentioned_user in message.mentions:
+        if bot.user and mentioned_user.id == bot.user.id:
+            continue
+        afk = afk_store.get_afk(message.guild.id if message.guild else None, mentioned_user.id)
+        if afk:
+            reason = afk.get("reason", "AFK")
+            await message.reply(f"{mentioned_user.mention} 现在 AFK：{reason}")
+            break
 
     if bot.user and bot.user in message.mentions:
         await message.reply(f"{message.author.mention} 你的妈妈也是魔女吗敢这么和Klee说话。")
@@ -384,6 +400,35 @@ async def handle_profile(interaction: discord.Interaction) -> None:
     )
 
 
+async def handle_nickname(interaction: discord.Interaction, name: str | None) -> None:
+    await defer(interaction)
+    print(f"nickname requested in {interaction.guild.id if interaction.guild else 'dm'}", flush=True)
+    try:
+        nickname = profile_stats.set_nickname(
+            interaction.guild.id if interaction.guild else None,
+            interaction.user.id,
+            name or "",
+        )
+    except ValueError as exc:
+        await respond(interaction, str(exc))
+        return
+    if nickname:
+        await respond(interaction, f"Klee以后会叫你 {nickname}。")
+    else:
+        await respond(interaction, "Klee已经忘掉你的特殊称呼啦。")
+
+
+async def handle_afk(interaction: discord.Interaction, reason: str | None) -> None:
+    await defer(interaction)
+    print(f"afk requested in {interaction.guild.id if interaction.guild else 'dm'}", flush=True)
+    afk_store.set_afk(
+        interaction.guild.id if interaction.guild else None,
+        interaction.user.id,
+        reason or "AFK",
+    )
+    await respond(interaction, f"{interaction.user.mention} 现在 AFK：{reason or 'AFK'}")
+
+
 async def handle_leaderboard(interaction: discord.Interaction, category: str) -> None:
     await defer(interaction)
     print(f"leaderboard requested in {interaction.guild.id if interaction.guild else 'dm'}: {category}", flush=True)
@@ -558,6 +603,30 @@ async def slash_profile(interaction: discord.Interaction) -> None:
 @bot.tree.command(name="档案", description="查看你的 Kleebot 档案。")
 async def slash_profile_cn(interaction: discord.Interaction) -> None:
     await handle_profile(interaction)
+
+
+@bot.tree.command(name="nickname", description="Set or clear your Kleebot nickname.")
+@app_commands.describe(name="Nickname to use; leave empty to clear")
+async def slash_nickname(interaction: discord.Interaction, name: str | None = None) -> None:
+    await handle_nickname(interaction, name)
+
+
+@bot.tree.command(name="称呼", description="设置或清除 Kleebot 对你的称呼。")
+@app_commands.describe(name="要使用的称呼；留空则清除")
+async def slash_nickname_cn(interaction: discord.Interaction, name: str | None = None) -> None:
+    await handle_nickname(interaction, name)
+
+
+@bot.tree.command(name="afk", description="Set your AFK status.")
+@app_commands.describe(reason="Why you are AFK")
+async def slash_afk(interaction: discord.Interaction, reason: str | None = None) -> None:
+    await handle_afk(interaction, reason)
+
+
+@bot.tree.command(name="离开状态", description="设置你的 AFK 状态。")
+@app_commands.describe(reason="AFK 原因")
+async def slash_afk_cn(interaction: discord.Interaction, reason: str | None = None) -> None:
+    await handle_afk(interaction, reason)
 
 
 @bot.tree.command(name="leaderboard", description="Show Kleebot server leaderboards.")
@@ -735,6 +804,25 @@ async def prefix_repeat(ctx: commands.Context, mode: str) -> None:
 @bot.command(name="profile", aliases=["档案"])
 async def prefix_profile(ctx: commands.Context) -> None:
     await ctx.send(profile_stats.profile_text(ctx.guild.id if ctx.guild else None, ctx.author.id, ctx.author.display_name))
+
+
+@bot.command(name="nickname", aliases=["称呼"])
+async def prefix_nickname(ctx: commands.Context, *, name: str = "") -> None:
+    try:
+        nickname = profile_stats.set_nickname(ctx.guild.id if ctx.guild else None, ctx.author.id, name)
+    except ValueError as exc:
+        await ctx.send(str(exc))
+        return
+    if nickname:
+        await ctx.send(f"Klee以后会叫你 {nickname}。")
+    else:
+        await ctx.send("Klee已经忘掉你的特殊称呼啦。")
+
+
+@bot.command(name="afk", aliases=["离开状态"])
+async def prefix_afk(ctx: commands.Context, *, reason: str = "AFK") -> None:
+    afk_store.set_afk(ctx.guild.id if ctx.guild else None, ctx.author.id, reason)
+    await ctx.send(f"{ctx.author.mention} 现在 AFK：{reason}")
 
 
 @bot.command(name="leaderboard", aliases=["lb", "排行榜"])

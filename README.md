@@ -56,6 +56,8 @@ docker compose logs -f kleebot
 - `/音量 percent` - `/volume` 的中文版本。
 - `/filter mode` / `/滤镜 mode` - 设置音频滤镜：`off`, `bassboost`, `nightcore`, `vaporwave`, `karaoke`。
 - `/profile` / `/档案` - 查看你的点歌次数、求签次数和历史最好签。
+- `/nickname name` / `/称呼 name` - 设置或清除 Klee 对你的称呼。
+- `/afk reason` / `/离开状态 reason` - 设置 AFK 状态，别人 @ 你时 Kleebot 会提醒。
 - `/leaderboard category` / `/排行榜 category` - 查看排行榜：`plays`, `fortunes`, `luck`, `bombed`。
 - `/bomb target` / `/炸弹 target` - 让 Klee 炸一个目标。
 - `/help` - 查看 Kleebot 的指令说明。
