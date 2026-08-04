@@ -47,7 +47,7 @@ FORTUNE_SLIP_IMAGE = ASSETS_DIR / "fortune-slip.webp"
 KLEE_FOOTER_IMAGE = ASSETS_DIR / "klee-footer.jpg"
 fortune_cooldowns = FortuneCooldownStore(DATA_DIR / "fortune_cooldowns.json")
 profile_stats = ProfileStatsStore(DATA_DIR / "profile_stats.json")
-KLEE_REEE_EMOTE = "<a:KleeREEE:816883329583808612>"
+KLEE_REEE_EMOTE_ID = 816883329583808612
 FILTER_CHOICES = [
     app_commands.Choice(name="off", value="off"),
     app_commands.Choice(name="bassboost", value="bassboost"),
@@ -380,7 +380,15 @@ async def handle_profile(interaction: discord.Interaction) -> None:
 async def handle_bomb(interaction: discord.Interaction, target: discord.abc.User) -> None:
     await defer(interaction)
     print(f"bomb requested in {interaction.guild.id if interaction.guild else 'dm'}: {target.id}", flush=True)
-    await respond(interaction, f"Klee炸死 {target.mention} 你这个王八蛋{KLEE_REEE_EMOTE}{KLEE_REEE_EMOTE}{KLEE_REEE_EMOTE}")
+    emote = bot.get_emoji(KLEE_REEE_EMOTE_ID)
+    if emote is None:
+        await respond(
+            interaction,
+            f"Klee炸死 {target.mention} 你这个王八蛋\n"
+            "KleeREEE 表情发不出来：bot 当前看不到这个自定义表情。"
+        )
+        return
+    await respond(interaction, f"Klee炸死 {target.mention} 你这个王八蛋{emote}{emote}{emote}")
 
 
 @bot.tree.command(name="play", description="Play a YouTube, Bilibili, NicoNico, Spotify link, or search query.")
@@ -692,7 +700,14 @@ async def prefix_profile(ctx: commands.Context) -> None:
 
 @bot.command(name="bomb", aliases=["炸弹"])
 async def prefix_bomb(ctx: commands.Context, target: discord.Member) -> None:
-    await ctx.send(f"Klee炸死 {target.mention} 你这个王八蛋{KLEE_REEE_EMOTE}{KLEE_REEE_EMOTE}{KLEE_REEE_EMOTE}")
+    emote = bot.get_emoji(KLEE_REEE_EMOTE_ID)
+    if emote is None:
+        await ctx.send(
+            f"Klee炸死 {target.mention} 你这个王八蛋\n"
+            "KleeREEE 表情发不出来：bot 当前看不到这个自定义表情。"
+        )
+        return
+    await ctx.send(f"Klee炸死 {target.mention} 你这个王八蛋{emote}{emote}{emote}")
 
 
 @bot.command(name="help")
