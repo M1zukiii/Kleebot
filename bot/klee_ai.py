@@ -41,21 +41,27 @@ class KleeAI:
             return KLEE_SYSTEM_PROMPT
         return prompt or KLEE_SYSTEM_PROMPT
 
-    async def reply(self, *, user_name: str, message: str) -> str:
+    async def reply(self, *, user_name: str, message: str, image_urls: list[str] | None = None) -> str:
         if not self.enabled:
             return FALLBACK_REPLY
 
-        prompt = (
+        text_prompt = (
             f"Discord 用户 {user_name} 对 Klee 说：\n"
             f"{message.strip() or '只是在叫 Klee。'}\n\n"
             "请用 Klee 的人设直接回复这个用户。"
         )
+        if image_urls:
+            text_prompt += "\n如果用户附带了图片，请先看图片内容，再自然地一起回应。"
+
+        content = [{"type": "input_text", "text": text_prompt}]
+        for image_url in (image_urls or [])[:4]:
+            content.append({"type": "input_image", "image_url": image_url})
 
         try:
             response = await self._get_client().responses.create(
                 model=self.model,
                 instructions=self._system_prompt(),
-                input=prompt,
+                input=[{"role": "user", "content": content}],
                 max_output_tokens=180,
             )
             text = (response.output_text or "").strip()

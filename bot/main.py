@@ -224,7 +224,16 @@ async def on_message(message: discord.Message) -> None:
         mention_text = message.content
         for mention in (bot.user.mention, f"<@!{bot.user.id}>"):
             mention_text = mention_text.replace(mention, "")
-        reply = await klee_ai.reply(user_name=message.author.display_name, message=mention_text)
+        image_urls = [
+            attachment.url
+            for attachment in message.attachments
+            if (attachment.content_type or "").lower().startswith("image/")
+        ]
+        reply = await klee_ai.reply(
+            user_name=message.author.display_name,
+            message=mention_text,
+            image_urls=image_urls,
+        )
         await message.reply(f"{message.author.mention} {reply}")
 
     await bot.process_commands(message)
