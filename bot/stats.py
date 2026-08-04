@@ -1,5 +1,4 @@
 import json
-from datetime import UTC, datetime, time, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -30,12 +29,8 @@ class ProfileStatsStore:
         self._save(data)
 
     def claim_daily_bombs(self, guild_id: int | None, user_id: int) -> tuple[bool, int]:
-        period = self._daily_period_key()
         data = self._load()
         profile = self._profile(data, guild_id, user_id)
-        if profile.get("last_daily") == period:
-            return False, int(profile.get("bombs", 0))
-        profile["last_daily"] = period
         profile["bombs"] = int(profile.get("bombs", 0)) + 3
         self._save(data)
         return True, int(profile["bombs"])
@@ -144,13 +139,6 @@ class ProfileStatsStore:
         guild = guilds.get(guild_key, {}) if isinstance(guilds, dict) else {}
         users = guild.get("users", {}) if isinstance(guild, dict) else {}
         return users if isinstance(users, dict) else {}
-
-    @staticmethod
-    def _daily_period_key() -> str:
-        now = datetime.now(UTC)
-        reset_at = datetime.combine(now.date(), time(hour=9, tzinfo=UTC))
-        period_date = now.date() if now >= reset_at else now.date() - timedelta(days=1)
-        return period_date.isoformat()
 
     def _rank_numeric(self, users: dict[str, Any], field: str, limit: int) -> list[tuple[str, int]]:
         entries: list[tuple[str, int]] = []
