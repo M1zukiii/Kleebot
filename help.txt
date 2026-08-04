@@ -13,7 +13,8 @@ Kleebot 指令：
 `/volume` / `/音量` 调整音量
 `/filter` / `/滤镜` 设置音频滤镜：off、bassboost、nightcore、vaporwave、karaoke
 `/profile` / `/档案` 查看你的点歌次数、求签次数和历史最好签
+`/leaderboard` / `/排行榜` 查看排行榜：plays、fortunes、luck、bombed
 `/bomb` / `/炸弹` 让 Klee 炸一个目标
 `/help` / `/帮助` 查看这段指令说明
 `/fortune` / `/求签` 抽取今日幸运签
-文字指令：`{PREFIX}play <链接或歌名>`、`{PREFIX}join`、`{PREFIX}queue`、`{PREFIX}nowplaying`、`{PREFIX}shuffle`、`{PREFIX}repeat <mode>`、`{PREFIX}skip`、`{PREFIX}stop`、`{PREFIX}leave`、`{PREFIX}filter <mode>`、`{PREFIX}profile`、`{PREFIX}bomb @目标`、`{PREFIX}求签`、`{PREFIX}help`
+文字指令：`{PREFIX}play <链接或歌名>`、`{PREFIX}join`、`{PREFIX}queue`、`{PREFIX}nowplaying`、`{PREFIX}shuffle`、`{PREFIX}repeat <mode>`、`{PREFIX}skip`、`{PREFIX}stop`、`{PREFIX}leave`、`{PREFIX}filter <mode>`、`{PREFIX}profile`、`{PREFIX}leaderboard <category>`、`{PREFIX}bomb @目标`、`{PREFIX}求签`、`{PREFIX}help`

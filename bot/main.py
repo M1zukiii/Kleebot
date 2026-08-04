@@ -60,6 +60,12 @@ REPEAT_CHOICES = [
     app_commands.Choice(name="one", value="one"),
     app_commands.Choice(name="queue", value="queue"),
 ]
+LEADERBOARD_CHOICES = [
+    app_commands.Choice(name="plays", value="plays"),
+    app_commands.Choice(name="fortunes", value="fortunes"),
+    app_commands.Choice(name="luck", value="luck"),
+    app_commands.Choice(name="bombed", value="bombed"),
+]
 
 DEFAULT_HELP_TEXT = """Kleebot 指令：
 `/play` / `/播放` 播放 YouTube / B站 / NicoNico / Spotify 链接，或直接搜索歌曲
@@ -70,8 +76,9 @@ DEFAULT_HELP_TEXT = """Kleebot 指令：
 `/repeat` / `/循环` 设置循环模式：off、one、queue
 `/filter` / `/滤镜` 设置音频滤镜：off、bassboost、nightcore、vaporwave、karaoke
 `/profile` / `/档案` 查看你的点歌次数、求签次数和历史最好签
+`/leaderboard` / `/排行榜` 查看排行榜：plays、fortunes、luck、bombed
 `/fortune` / `/求签` 抽取今日幸运签
-文字指令：`{PREFIX}play <链接或歌名>`、`{PREFIX}nowplaying`、`{PREFIX}shuffle`、`{PREFIX}repeat <mode>`、`{PREFIX}filter <mode>`、`{PREFIX}profile`、`{PREFIX}求签`、`{PREFIX}help`"""
+文字指令：`{PREFIX}play <链接或歌名>`、`{PREFIX}nowplaying`、`{PREFIX}shuffle`、`{PREFIX}repeat <mode>`、`{PREFIX}filter <mode>`、`{PREFIX}profile`、`{PREFIX}leaderboard <category>`、`{PREFIX}求签`、`{PREFIX}help`"""
 
 
 def get_player(guild: discord.Guild) -> GuildPlayer:
@@ -377,9 +384,21 @@ async def handle_profile(interaction: discord.Interaction) -> None:
     )
 
 
+async def handle_leaderboard(interaction: discord.Interaction, category: str) -> None:
+    await defer(interaction)
+    print(f"leaderboard requested in {interaction.guild.id if interaction.guild else 'dm'}: {category}", flush=True)
+    try:
+        text = profile_stats.leaderboard_text(interaction.guild.id if interaction.guild else None, category)
+    except ValueError as exc:
+        await respond(interaction, str(exc))
+        return
+    await respond(interaction, text)
+
+
 async def handle_bomb(interaction: discord.Interaction, target: discord.abc.User) -> None:
     await defer(interaction)
     print(f"bomb requested in {interaction.guild.id if interaction.guild else 'dm'}: {target.id}", flush=True)
+    profile_stats.record_bombed(interaction.guild.id if interaction.guild else None, target.id)
     emote = bot.get_emoji(KLEE_REEE_EMOTE_ID)
     if emote is None:
         await respond(
@@ -541,6 +560,26 @@ async def slash_profile_cn(interaction: discord.Interaction) -> None:
     await handle_profile(interaction)
 
 
+@bot.tree.command(name="leaderboard", description="Show Kleebot server leaderboards.")
+@app_commands.describe(category="Leaderboard category")
+@app_commands.choices(category=LEADERBOARD_CHOICES)
+async def slash_leaderboard(
+    interaction: discord.Interaction,
+    category: app_commands.Choice[str] | None = None,
+) -> None:
+    await handle_leaderboard(interaction, category.value if category else "plays")
+
+
+@bot.tree.command(name="排行榜", description="查看 Kleebot 服务器排行榜。")
+@app_commands.describe(category="排行榜分类")
+@app_commands.choices(category=LEADERBOARD_CHOICES)
+async def slash_leaderboard_cn(
+    interaction: discord.Interaction,
+    category: app_commands.Choice[str] | None = None,
+) -> None:
+    await handle_leaderboard(interaction, category.value if category else "plays")
+
+
 @bot.tree.command(name="bomb", description="Let Klee bomb a target.")
 @app_commands.describe(target="Target user")
 async def slash_bomb(interaction: discord.Interaction, target: discord.Member) -> None:
@@ -698,8 +737,17 @@ async def prefix_profile(ctx: commands.Context) -> None:
     await ctx.send(profile_stats.profile_text(ctx.guild.id if ctx.guild else None, ctx.author.id, ctx.author.display_name))
 
 
+@bot.command(name="leaderboard", aliases=["lb", "排行榜"])
+async def prefix_leaderboard(ctx: commands.Context, category: str = "plays") -> None:
+    try:
+        await ctx.send(profile_stats.leaderboard_text(ctx.guild.id if ctx.guild else None, category))
+    except ValueError as exc:
+        await ctx.send(str(exc))
+
+
 @bot.command(name="bomb", aliases=["炸弹"])
 async def prefix_bomb(ctx: commands.Context, target: discord.Member) -> None:
+    profile_stats.record_bombed(ctx.guild.id if ctx.guild else None, target.id)
     emote = bot.get_emoji(KLEE_REEE_EMOTE_ID)
     if emote is None:
         await ctx.send(
