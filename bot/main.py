@@ -2,6 +2,7 @@ import asyncio
 import os
 import re
 from collections import defaultdict, deque
+from io import BytesIO
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -543,6 +544,27 @@ async def handle_bomb(interaction: discord.Interaction, target: discord.abc.User
     await respond(interaction, f"{bomb_text(target)}\n剩余炸弹：{bombs_left}")
 
 
+async def handle_imagine(interaction: discord.Interaction, prompt: str) -> None:
+    if not await defer(interaction):
+        return
+    prompt = prompt.strip()
+    print(f"imagine requested in {interaction.guild.id if interaction.guild else 'dm'}", flush=True)
+    if not prompt:
+        await respond(interaction, "Tell Klee what to draw.")
+        return
+    try:
+        image = await klee_ai.generate_image(prompt=prompt[:32000])
+    except Exception as exc:
+        print(f"image generation failed: {exc}", flush=True)
+        await respond(interaction, f"Klee 画不出来这个... {exc}")
+        return
+    file = discord.File(BytesIO(image), filename="klee-image.png")
+    try:
+        await interaction.followup.send(content=f"{interaction.user.mention} Klee 画好啦！", file=file)
+    except discord.NotFound:
+        print("image response skipped: interaction is no longer available", flush=True)
+
+
 def bomb_text(target: discord.abc.User) -> str:
     emote = bot.get_emoji(KLEE_REEE_EMOTE_ID)
     if emote is None:
@@ -759,6 +781,18 @@ async def slash_bomb_cn(interaction: discord.Interaction, target: discord.Member
     await handle_bomb(interaction, target)
 
 
+@bot.tree.command(name="imagine", description="Generate an image from a prompt.")
+@app_commands.describe(prompt="What Klee should draw")
+async def slash_imagine(interaction: discord.Interaction, prompt: str) -> None:
+    await handle_imagine(interaction, prompt)
+
+
+@bot.tree.command(name="生图", description="让 Klee 根据描述生成图片。")
+@app_commands.describe(prompt="想让 Klee 画什么")
+async def slash_imagine_cn(interaction: discord.Interaction, prompt: str) -> None:
+    await handle_imagine(interaction, prompt)
+
+
 @bot.tree.command(name="help", description="Show Kleebot command help.")
 async def slash_help(interaction: discord.Interaction) -> None:
     await respond_help(interaction)
@@ -947,6 +981,19 @@ async def prefix_bomb(ctx: commands.Context, target: discord.Member) -> None:
         return
     profile_stats.record_bombed(ctx.guild.id if ctx.guild else None, target.id)
     await ctx.send(f"{bomb_text(target)}\n剩余炸弹：{bombs_left}")
+
+
+@bot.command(name="imagine", aliases=["生图", "画图"])
+async def prefix_imagine(ctx: commands.Context, *, prompt: str) -> None:
+    message = await ctx.send("Klee 正在画图...")
+    try:
+        image = await klee_ai.generate_image(prompt=prompt.strip()[:32000])
+    except Exception as exc:
+        print(f"image generation failed: {exc}", flush=True)
+        await message.edit(content=f"Klee 画不出来这个... {exc}")
+        return
+    await message.delete()
+    await ctx.send(f"{ctx.author.mention} Klee 画好啦！", file=discord.File(BytesIO(image), filename="klee-image.png"))
 
 
 @bot.command(name="help")

@@ -1,3 +1,4 @@
+import base64
 import os
 from pathlib import Path
 
@@ -16,6 +17,8 @@ class KleeAI:
     def __init__(self) -> None:
         self.api_key = os.getenv("OPENAI_API_KEY")
         self.model = os.getenv("OPENAI_MODEL", "gpt-5.6-luna")
+        self.image_model = os.getenv("OPENAI_IMAGE_MODEL", "gpt-image-1.5")
+        self.image_size = os.getenv("OPENAI_IMAGE_SIZE", "1024x1024")
         self.base_url = os.getenv("OPENAI_BASE_URL")
         self.prompt_file = Path(os.getenv("KLEE_PROMPT_FILE", str(DEFAULT_PROMPT_FILE)))
         self._client = None
@@ -86,3 +89,29 @@ class KleeAI:
         if not text:
             return FALLBACK_REPLY
         return text[:1800]
+
+    async def generate_image(self, *, prompt: str) -> bytes:
+        if not self.enabled:
+            raise RuntimeError("OPENAI_API_KEY is missing.")
+        response = await self._get_client().images.generate(
+            model=self.image_model,
+            prompt=prompt,
+            size=self.image_size,
+            n=1,
+        )
+        if not response.data:
+            raise RuntimeError("Image generation returned no data.")
+
+        item = response.data[0]
+        b64_json = getattr(item, "b64_json", None)
+        if b64_json:
+            return base64.b64decode(b64_json)
+
+        image_url = getattr(item, "url", None)
+        if image_url:
+            from urllib.request import urlopen
+
+            with urlopen(image_url, timeout=30) as result:
+                return result.read()
+
+        raise RuntimeError("Image generation did not return image bytes.")

@@ -17,6 +17,7 @@ Kleebot 指令：
 `/afk` / `/离开状态` 设置 AFK 状态，别人 @ 你时 Klee 会提醒
 `/leaderboard` / `/排行榜` 查看排行榜：plays、fortunes、luck、bombed
 `/bomb` / `/炸弹` 消耗 1 个炸弹，让 Klee 炸一个目标
+`/imagine` / `/生图` 根据描述生成图片
 `/help` / `/帮助` 查看这段指令说明
 `/fortune` / `/求签` 抽取今日幸运签，并领取 3 个炸弹
 文字指令：`{PREFIX}play <链接或歌名>`、`{PREFIX}join`、`{PREFIX}queue`、`{PREFIX}nowplaying`、`{PREFIX}shuffle`、`{PREFIX}repeat <mode>`、`{PREFIX}skip`、`{PREFIX}stop`、`{PREFIX}leave`、`{PREFIX}filter <mode>`、`{PREFIX}profile`、`{PREFIX}nickname <称呼>`、`{PREFIX}afk <原因>`、`{PREFIX}leaderboard <category>`、`{PREFIX}bomb @目标`、`{PREFIX}求签`、`{PREFIX}help`

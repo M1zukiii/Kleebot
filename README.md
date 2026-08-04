@@ -14,6 +14,7 @@ Self-hosted Discord music bot for YouTube, Bilibili, NicoNico, and Spotify track
 - URL playback and YouTube search through `yt-dlp`.
 - Spotify track links are resolved to song metadata, then played from a YouTube search result.
 - Mention replies can use OpenAI GPT Luna with a Klee persona, including image attachments and lightweight YouTube/Bilibili/NicoNico video metadata.
+- Image generation with `/imagine`, `/生图`, `!imagine`, or `!生图`.
 - Optional cookies file for sites that require login.
 
 ## Setup
@@ -62,6 +63,7 @@ docker compose logs -f kleebot
 - `/afk reason` / `/离开状态 reason` - 设置 AFK 状态，别人 @ 你时 Kleebot 会提醒。
 - `/leaderboard category` / `/排行榜 category` - 查看排行榜：`plays`, `fortunes`, `luck`, `bombed`。
 - `/bomb target` / `/炸弹 target` - 消耗 1 个炸弹，让 Klee 炸一个目标。
+- `/imagine prompt` / `/生图 prompt` - 根据描述生成图片。
 - `/help` - 查看 Kleebot 的指令说明。
 - `/帮助` - `/help` 的中文版本。
 - `/fortune` - 抽取今日幸运签，并领取 3 个炸弹。
