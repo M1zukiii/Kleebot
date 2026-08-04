@@ -301,14 +301,6 @@ async def on_message(message: discord.Message) -> None:
             remembered_text = f"{remembered_text} [图片 x{len(image_urls[:4])}]"
         remember_channel_message(message.channel.id, message.author.display_name, remembered_text)
         remember_channel_message(message.channel.id, "Klee", reply)
-    elif not message.content.startswith(PREFIX):
-        remembered_text = message.clean_content
-        if message.attachments:
-            image_count = sum(1 for attachment in message.attachments if (attachment.content_type or "").lower().startswith("image/"))
-            if image_count:
-                remembered_text = f"{remembered_text} [图片 x{image_count}]"
-        remember_channel_message(message.channel.id, message.author.display_name, remembered_text)
-
     await bot.process_commands(message)
 
 
