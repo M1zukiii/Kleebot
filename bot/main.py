@@ -11,6 +11,7 @@ from discord import app_commands
 from discord.ext import commands
 from dotenv import load_dotenv
 
+from .ai_usage import AiUsageStore
 from .fortune import (
     FortuneResult,
     draw_daily_fortune,
@@ -56,6 +57,7 @@ KLEE_FOOTER_IMAGE = ASSETS_DIR / "klee-footer.jpg"
 fortune_cooldowns = FortuneCooldownStore(DATA_DIR / "fortune_cooldowns.json")
 profile_stats = ProfileStatsStore(DATA_DIR / "profile_stats.json")
 afk_store = AfkStore(DATA_DIR / "afk.json")
+ai_usage = AiUsageStore(DATA_DIR / "ai_usage.json")
 KLEE_REEE_EMOTE_ID = 1534067915089903727
 KLEE_MENTION_REPLY = FALLBACK_REPLY
 NO_BOMBS_MESSAGE = "荣誉骑士你现在没有炸弹哦~等Klee做好了炸弹分给你吧~"
@@ -79,6 +81,10 @@ LEADERBOARD_CHOICES = [
 ]
 KLEE_CONTEXT_CHARS = int(os.getenv("KLEE_CONTEXT_CHARS", "900"))
 KLEE_VIDEO_METADATA_LIMIT = int(os.getenv("KLEE_VIDEO_METADATA_LIMIT", "2"))
+KLEE_VISION_DAILY_LIMIT = int(os.getenv("KLEE_VISION_DAILY_LIMIT", "3"))
+KLEE_IMAGE_DAILY_LIMIT = int(os.getenv("KLEE_IMAGE_DAILY_LIMIT", "1"))
+VISION_LIMIT_MESSAGE = "荣誉骑士今天让 Klee 看太多图片啦，Klee 的眼睛要变成蹦蹦炸弹了... 明天再来吧！"
+IMAGE_LIMIT_MESSAGE = "荣誉骑士今天已经让 Klee 画过图啦，画笔要休息到明天哦~"
 
 DEFAULT_HELP_TEXT = """Kleebot 指令：
 `/play` / `/播放` 播放 YouTube / B站 / NicoNico / Spotify 链接，或直接搜索歌曲
@@ -288,6 +294,16 @@ async def on_message(message: discord.Message) -> None:
             for attachment in message.attachments
             if (attachment.content_type or "").lower().startswith("image/")
         ]
+        if image_urls:
+            allowed, _ = ai_usage.try_use(
+                message.guild.id if message.guild else None,
+                message.author.id,
+                "vision",
+                KLEE_VISION_DAILY_LIMIT,
+            )
+            if not allowed:
+                await message.reply(f"{message.author.mention} {VISION_LIMIT_MESSAGE}")
+                return
         video_metadata = await video_metadata_for_prompt(extract_video_urls(mention_text))
         reply = await klee_ai.reply(
             user_name=message.author.display_name,
@@ -551,6 +567,15 @@ async def handle_imagine(interaction: discord.Interaction, prompt: str) -> None:
     print(f"imagine requested in {interaction.guild.id if interaction.guild else 'dm'}", flush=True)
     if not prompt:
         await respond(interaction, "Tell Klee what to draw.")
+        return
+    allowed, _ = ai_usage.try_use(
+        interaction.guild.id if interaction.guild else None,
+        interaction.user.id,
+        "image",
+        KLEE_IMAGE_DAILY_LIMIT,
+    )
+    if not allowed:
+        await respond(interaction, IMAGE_LIMIT_MESSAGE)
         return
     try:
         image = await klee_ai.generate_image(prompt=prompt[:32000])
@@ -986,6 +1011,10 @@ async def prefix_bomb(ctx: commands.Context, target: discord.Member) -> None:
 @bot.command(name="imagine", aliases=["生图", "画图"])
 async def prefix_imagine(ctx: commands.Context, *, prompt: str) -> None:
     message = await ctx.send("Klee 正在画图...")
+    allowed, _ = ai_usage.try_use(ctx.guild.id if ctx.guild else None, ctx.author.id, "image", KLEE_IMAGE_DAILY_LIMIT)
+    if not allowed:
+        await message.edit(content=IMAGE_LIMIT_MESSAGE)
+        return
     try:
         image = await klee_ai.generate_image(prompt=prompt.strip()[:32000])
     except Exception as exc:

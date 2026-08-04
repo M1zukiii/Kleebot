@@ -15,6 +15,7 @@ Self-hosted Discord music bot for YouTube, Bilibili, NicoNico, and Spotify track
 - Spotify track links are resolved to song metadata, then played from a YouTube search result.
 - Mention replies can use OpenAI GPT Luna with a Klee persona, including image attachments and lightweight YouTube/Bilibili/NicoNico video metadata.
 - Image generation with `/imagine`, `/生图`, `!imagine`, or `!生图`.
+- Daily AI cost limits: 3 image-recognition mentions and 1 image generation per user.
 - Optional cookies file for sites that require login.
 
 ## Setup
