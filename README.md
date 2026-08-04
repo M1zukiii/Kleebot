@@ -13,6 +13,7 @@ Self-hosted Discord music bot for YouTube, Bilibili, NicoNico, and Spotify track
 - Fortune tiers are based on luck compared with the average, with `98.5%+` as an extra rare top tier.
 - URL playback and YouTube search through `yt-dlp`.
 - Spotify track links are resolved to song metadata, then played from a YouTube search result.
+- Mention replies can use OpenAI GPT Luna with a Klee persona.
 - Optional cookies file for sites that require login.
 
 ## Setup
@@ -20,7 +21,8 @@ Self-hosted Discord music bot for YouTube, Bilibili, NicoNico, and Spotify track
 1. Copy `.env.example` to `.env`.
 2. Put your Discord bot token in `DISCORD_TOKEN`.
 3. Optional: set `GUILD_ID` to your Discord server ID for faster slash-command syncing while testing.
-4. Start the bot:
+4. Optional: set `OPENAI_API_KEY` and `OPENAI_MODEL=gpt-5.6-luna` to enable Klee-style AI replies when the bot is mentioned.
+5. Start the bot:
 
 ```powershell
 docker compose up -d --build

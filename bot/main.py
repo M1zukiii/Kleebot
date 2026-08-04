@@ -17,6 +17,7 @@ from .fortune import (
     luck_summary,
 )
 from .fortune_cooldown import FortuneCooldownStore
+from .klee_ai import FALLBACK_REPLY, KleeAI
 from .player import GuildPlayer
 from .resolver import Resolver
 from .afk import DEFAULT_AFK_REASON, AfkStore
@@ -39,6 +40,7 @@ intents.message_content = True
 
 bot = commands.Bot(command_prefix=PREFIX, intents=intents, help_command=None)
 resolver = Resolver()
+klee_ai = KleeAI()
 players: dict[int, GuildPlayer] = {}
 BASE_DIR = Path(__file__).resolve().parent.parent
 ASSETS_DIR = BASE_DIR / "assets"
@@ -50,7 +52,7 @@ fortune_cooldowns = FortuneCooldownStore(DATA_DIR / "fortune_cooldowns.json")
 profile_stats = ProfileStatsStore(DATA_DIR / "profile_stats.json")
 afk_store = AfkStore(DATA_DIR / "afk.json")
 KLEE_REEE_EMOTE_ID = 1534067915089903727
-KLEE_MENTION_REPLY = "西风骑士团，「火花骑士」，Klee，前来报到！…呃—后面该说什么词来着？Klee背不下来啦..."
+KLEE_MENTION_REPLY = FALLBACK_REPLY
 NO_BOMBS_MESSAGE = "荣誉骑士你现在没有炸弹哦~等Klee做好了炸弹分给你吧~"
 FILTER_CHOICES = [
     app_commands.Choice(name="off", value="off"),
@@ -219,7 +221,11 @@ async def on_message(message: discord.Message) -> None:
             break
 
     if bot.user and bot.user in message.mentions:
-        await message.reply(f"{message.author.mention} {KLEE_MENTION_REPLY}")
+        mention_text = message.content
+        for mention in (bot.user.mention, f"<@!{bot.user.id}>"):
+            mention_text = mention_text.replace(mention, "")
+        reply = await klee_ai.reply(user_name=message.author.display_name, message=mention_text)
+        await message.reply(f"{message.author.mention} {reply}")
 
     await bot.process_commands(message)
 
