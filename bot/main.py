@@ -1,7 +1,9 @@
 import asyncio
 import os
+import re
 from collections import defaultdict, deque
 from pathlib import Path
+from urllib.parse import urlparse
 
 import discord
 from discord import app_commands
@@ -75,6 +77,7 @@ LEADERBOARD_CHOICES = [
     app_commands.Choice(name="bombed", value="bombed"),
 ]
 KLEE_CONTEXT_CHARS = int(os.getenv("KLEE_CONTEXT_CHARS", "900"))
+KLEE_VIDEO_METADATA_LIMIT = int(os.getenv("KLEE_VIDEO_METADATA_LIMIT", "2"))
 
 DEFAULT_HELP_TEXT = """Kleebot 指令：
 `/play` / `/播放` 播放 YouTube / B站 / NicoNico / Spotify 链接，或直接搜索歌曲
@@ -145,6 +148,39 @@ def remember_channel_message(channel_id: int, author: str, content: str) -> None
     if not clean:
         return
     chat_context[channel_id].append((author[:32], clean[:220]))
+
+
+def extract_video_urls(text: str) -> list[str]:
+    urls = re.findall(r"https?://\S+", text)
+    video_urls: list[str] = []
+    for url in urls:
+        clean_url = url.rstrip(">)].,，。!?！？")
+        host = urlparse(clean_url).netloc.lower()
+        if any(
+            domain in host
+            for domain in (
+                "youtube.com",
+                "youtu.be",
+                "bilibili.com",
+                "b23.tv",
+                "nicovideo.jp",
+                "nico.ms",
+            )
+        ):
+            video_urls.append(clean_url)
+    return video_urls[:KLEE_VIDEO_METADATA_LIMIT]
+
+
+async def video_metadata_for_prompt(urls: list[str]) -> list[str]:
+    metadata: list[str] = []
+    for url in urls:
+        try:
+            item = await asyncio.wait_for(resolver.video_metadata(url), timeout=16)
+        except Exception as exc:
+            print(f"video metadata failed for {url}: {exc}", flush=True)
+            continue
+        metadata.append(item.prompt_text())
+    return metadata
 
 
 async def respond(interaction: discord.Interaction, message: str, ephemeral: bool = False) -> bool:
@@ -251,11 +287,13 @@ async def on_message(message: discord.Message) -> None:
             for attachment in message.attachments
             if (attachment.content_type or "").lower().startswith("image/")
         ]
+        video_metadata = await video_metadata_for_prompt(extract_video_urls(mention_text))
         reply = await klee_ai.reply(
             user_name=message.author.display_name,
             message=mention_text,
             image_urls=image_urls,
             context=channel_context(message.channel.id),
+            video_metadata=video_metadata,
         )
         await message.reply(f"{message.author.mention} {reply}")
         remembered_text = mention_text

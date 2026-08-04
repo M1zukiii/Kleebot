@@ -48,6 +48,7 @@ class KleeAI:
         message: str,
         image_urls: list[str] | None = None,
         context: list[str] | None = None,
+        video_metadata: list[str] | None = None,
     ) -> str:
         if not self.enabled:
             return FALLBACK_REPLY
@@ -60,6 +61,9 @@ class KleeAI:
         )
         if context_text:
             text_prompt += f"\n\n这是同一频道最近的少量聊天上下文，只在有帮助时参考，不要逐字复述：\n{context_text}"
+        if video_metadata:
+            text_prompt += "\n\n用户发了视频链接，这是能拿到的 metadata。请根据这些信息用 Klee 的语气简短总结或吐槽，不要假装看过完整视频：\n"
+            text_prompt += "\n\n".join(video_metadata)
         if image_urls:
             text_prompt += "\n如果用户附带了图片，请先看图片内容，再自然地一起回应。"
 

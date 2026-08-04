@@ -13,7 +13,7 @@ Self-hosted Discord music bot for YouTube, Bilibili, NicoNico, and Spotify track
 - Fortune tiers are based on luck compared with the average, with `98.5%+` as an extra rare top tier.
 - URL playback and YouTube search through `yt-dlp`.
 - Spotify track links are resolved to song metadata, then played from a YouTube search result.
-- Mention replies can use OpenAI GPT Luna with a Klee persona, including image attachments.
+- Mention replies can use OpenAI GPT Luna with a Klee persona, including image attachments and lightweight YouTube/Bilibili/NicoNico video metadata.
 - Optional cookies file for sites that require login.
 
 ## Setup

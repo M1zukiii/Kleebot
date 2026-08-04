@@ -25,6 +25,32 @@ class Track:
     local_path: str | None = None
 
 
+@dataclass
+class VideoMetadata:
+    title: str
+    webpage_url: str
+    uploader: str | None
+    duration: int | None
+    description: str | None
+    source: str | None
+
+    def prompt_text(self) -> str:
+        parts = [
+            f"标题：{self.title}",
+            f"链接：{self.webpage_url}",
+        ]
+        if self.uploader:
+            parts.append(f"作者/频道：{self.uploader}")
+        if self.duration:
+            minutes, seconds = divmod(int(self.duration), 60)
+            parts.append(f"时长：{minutes}:{seconds:02d}")
+        if self.source:
+            parts.append(f"来源：{self.source}")
+        if self.description:
+            parts.append(f"简介：{self.description[:600]}")
+        return "\n".join(parts)
+
+
 class Resolver:
     def __init__(self) -> None:
         self.cookies = os.getenv("YTDLP_COOKIES", "/app/data/cookies.txt")
@@ -32,6 +58,43 @@ class Resolver:
     async def resolve(self, query: str, requester: str) -> Track:
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(None, self._resolve_sync, query, requester)
+
+    async def video_metadata(self, url: str) -> VideoMetadata:
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(None, self._video_metadata_sync, url)
+
+    def _video_metadata_sync(self, url: str) -> VideoMetadata:
+        target = self._normalize_query(url)
+        options: dict[str, Any] = {
+            "skip_download": True,
+            "noplaylist": True,
+            "quiet": True,
+            "no_warnings": True,
+            "source_address": "0.0.0.0",
+            "socket_timeout": 12,
+        }
+        if self.cookies and os.path.exists(self.cookies):
+            options["cookiefile"] = self.cookies
+
+        with yt_dlp.YoutubeDL(options) as ydl:
+            data = ydl.extract_info(target, download=False)
+
+        if data is None:
+            raise RuntimeError("No video metadata found.")
+        if "entries" in data:
+            entries = [entry for entry in data["entries"] if entry]
+            if not entries:
+                raise RuntimeError("No video metadata entries found.")
+            data = entries[0]
+
+        return VideoMetadata(
+            title=data.get("title") or "Untitled",
+            webpage_url=data.get("webpage_url") or target,
+            uploader=data.get("uploader") or data.get("channel"),
+            duration=data.get("duration"),
+            description=self._clean_description(data.get("description")),
+            source=data.get("extractor_key") or data.get("extractor"),
+        )
 
     def _resolve_sync(self, query: str, requester: str) -> Track:
         original_query = query
@@ -198,6 +261,12 @@ class Resolver:
     @staticmethod
     def _clean_spotify_title(title: str) -> str:
         return re.sub(r"\s+", " ", title.replace(" - song and lyrics by ", " by ")).strip()
+
+    @staticmethod
+    def _clean_description(description: Any) -> str | None:
+        if not description:
+            return None
+        return re.sub(r"\s+", " ", str(description)).strip()
 
     @staticmethod
     def _looks_like_url(value: str) -> bool:
