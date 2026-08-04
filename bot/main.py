@@ -376,6 +376,12 @@ async def handle_profile(interaction: discord.Interaction) -> None:
     )
 
 
+async def handle_bomb(interaction: discord.Interaction, target: discord.abc.User) -> None:
+    await defer(interaction)
+    print(f"bomb requested in {interaction.guild.id if interaction.guild else 'dm'}: {target.id}", flush=True)
+    await respond(interaction, f"Klee炸死 {target.mention} 你这个王八蛋:KleeREEE::KleeREEE::KleeREEE:")
+
+
 @bot.tree.command(name="play", description="Play a YouTube, Bilibili, NicoNico, Spotify link, or search query.")
 @app_commands.describe(query="Song name, search text, or a YouTube, Bilibili, NicoNico, Spotify link")
 async def slash_play(interaction: discord.Interaction, query: str) -> None:
@@ -526,6 +532,18 @@ async def slash_profile_cn(interaction: discord.Interaction) -> None:
     await handle_profile(interaction)
 
 
+@bot.tree.command(name="bomb", description="Let Klee bomb a target.")
+@app_commands.describe(target="Target user")
+async def slash_bomb(interaction: discord.Interaction, target: discord.Member) -> None:
+    await handle_bomb(interaction, target)
+
+
+@bot.tree.command(name="炸弹", description="让 Klee 炸一个目标。")
+@app_commands.describe(target="目标用户")
+async def slash_bomb_cn(interaction: discord.Interaction, target: discord.Member) -> None:
+    await handle_bomb(interaction, target)
+
+
 @bot.tree.command(name="help", description="Show Kleebot command help.")
 async def slash_help(interaction: discord.Interaction) -> None:
     await respond_help(interaction)
@@ -669,6 +687,11 @@ async def prefix_repeat(ctx: commands.Context, mode: str) -> None:
 @bot.command(name="profile", aliases=["档案"])
 async def prefix_profile(ctx: commands.Context) -> None:
     await ctx.send(profile_stats.profile_text(ctx.guild.id if ctx.guild else None, ctx.author.id, ctx.author.display_name))
+
+
+@bot.command(name="bomb", aliases=["炸弹"])
+async def prefix_bomb(ctx: commands.Context, target: discord.Member) -> None:
+    await ctx.send(f"Klee炸死 {target.mention} 你这个王八蛋:KleeREEE::KleeREEE::KleeREEE:")
 
 
 @bot.command(name="help")
