@@ -25,7 +25,7 @@ Self-hosted Discord music bot for YouTube, Bilibili, NicoNico, and Spotify track
 2. Put your Discord bot token in `DISCORD_TOKEN`.
 3. Optional: set `GUILD_ID` to your Discord server ID for faster slash-command syncing while testing.
 4. Optional: set `OPENAI_API_KEY` and `OPENAI_MODEL=gpt-5.6-luna` to enable Klee-style AI replies when the bot is mentioned. Edit `klee_prompt.txt` to customize the persona. Use `KLEE_CONTEXT_MESSAGES` and `KLEE_CONTEXT_CHARS` to limit recent @Klee context.
-5. Optional: set `SPOTIFY_CLIENT_ID` and `SPOTIFY_CLIENT_SECRET` to enable Spotify album and playlist queueing.
+5. Spotify track/album/playlist links use public Spotify page metadata by default. Optional: set `SPOTIFY_USE_API=true`, `SPOTIFY_CLIENT_ID`, and `SPOTIFY_CLIENT_SECRET` only if you want Spotify API fallback.
 6. Start the bot:
 
 ```powershell

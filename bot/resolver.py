@@ -69,6 +69,7 @@ class Resolver:
         self.cookies = os.getenv("YTDLP_COOKIES", "/app/data/cookies.txt")
         self.spotify_client_id = os.getenv("SPOTIFY_CLIENT_ID")
         self.spotify_client_secret = os.getenv("SPOTIFY_CLIENT_SECRET")
+        self.spotify_use_api = os.getenv("SPOTIFY_USE_API", "").lower() in {"1", "true", "yes", "on"}
         self._spotify_token: str | None = None
 
     async def resolve(self, query: str, requester: str) -> Track:
@@ -224,18 +225,23 @@ class Resolver:
         return tracks
 
     def _resolve_spotify_collection_sync(self, url: str, requester: str, limit: int) -> list[Track]:
-        if not self.spotify_client_id or not self.spotify_client_secret:
-            raise RuntimeError(
-                "Spotify album/playlist playback needs SPOTIFY_CLIENT_ID and SPOTIFY_CLIENT_SECRET. "
-                "Spotify track links still work."
-            )
-
         parsed = urlparse(url)
         match = re.match(r"^/(album|playlist)/([^/?#]+)", parsed.path)
         if not match:
             raise RuntimeError("Unsupported Spotify URL.")
         kind, spotify_id = match.groups()
-        tracks = self._spotify_collection_tracks(kind, spotify_id, limit)
+        tracks = self._spotify_public_collection_tracks(url, limit)
+        if not tracks and self.spotify_use_api:
+            if not self.spotify_client_id or not self.spotify_client_secret:
+                raise RuntimeError(
+                    "Spotify API fallback needs SPOTIFY_CLIENT_ID and SPOTIFY_CLIENT_SECRET."
+                )
+            tracks = self._spotify_api_collection_tracks(kind, spotify_id, limit)
+        if not tracks:
+            raise RuntimeError(
+                "Could not read Spotify album/playlist tracks from the public page. "
+                "Spotify track links still work; album/playlist links may need SPOTIFY_USE_API=true."
+            )
         resolved: list[Track] = []
         for spotify_track in tracks:
             if len(resolved) >= limit:
@@ -248,7 +254,34 @@ class Resolver:
             raise RuntimeError("No playable Spotify entries found.")
         return resolved
 
-    def _spotify_collection_tracks(self, kind: str, spotify_id: str, limit: int) -> list[SpotifyTrackMeta]:
+    def _spotify_public_collection_tracks(self, url: str, limit: int) -> list[SpotifyTrackMeta]:
+        try:
+            page = self._spotify_fetch_page(url)
+        except OSError:
+            return []
+        tracks: list[SpotifyTrackMeta] = []
+        for match in re.finditer(r'data-testid="track-row"', page):
+            if len(tracks) >= limit:
+                break
+            start = page.rfind("<div", 0, match.start())
+            end = page.find('data-testid="track-row"', match.end())
+            block = page[start:end if end != -1 else match.end() + 6000]
+
+            title = self._attribute_content(block, "aria-label")
+            if not title:
+                title_match = re.search(r'data-encore-id="listRowTitle"[^>]*>.*?<span[^>]*>(.*?)</span>', block, re.S)
+                if title_match:
+                    title = self._clean_html_text(title_match.group(1))
+            artists = [
+                self._clean_html_text(artist)
+                for artist in re.findall(r'href="/artist/[^"]+"[^>]*>(.*?)</a>', block, re.S)
+            ]
+            artists = [artist for artist in artists if artist]
+            if title:
+                tracks.append(SpotifyTrackMeta(title=self._clean_html_text(title), artists=artists))
+        return tracks
+
+    def _spotify_api_collection_tracks(self, kind: str, spotify_id: str, limit: int) -> list[SpotifyTrackMeta]:
         token = self._spotify_access_token()
         if kind == "album":
             next_url = f"https://api.spotify.com/v1/albums/{spotify_id}/tracks?limit={min(limit, 50)}"
@@ -406,7 +439,7 @@ class Resolver:
         return track
 
     def _spotify_track_meta(self, query: str) -> SpotifyTrackMeta:
-        if self.spotify_client_id and self.spotify_client_secret:
+        if self.spotify_use_api and self.spotify_client_id and self.spotify_client_secret:
             parsed = urlparse(query)
             match = re.match(r"^/track/([^/?#]+)", parsed.path)
             if match:
@@ -425,9 +458,9 @@ class Resolver:
                 except Exception as exc:
                     print(f"spotify api track metadata failed: {exc}", flush=True)
 
-        page_query = self._spotify_track_page_query(query)
-        if page_query:
-            return self._spotify_query_meta(page_query)
+        page_meta = self._spotify_track_page_meta(query)
+        if page_meta:
+            return page_meta
 
         oembed_url = f"https://open.spotify.com/oembed?url={quote(query, safe='')}"
         request = Request(oembed_url, headers={"User-Agent": "Kleebot/1.0"})
@@ -439,6 +472,27 @@ class Resolver:
             raise RuntimeError("Could not read Spotify track metadata.")
 
         return self._spotify_query_meta(f"{self._clean_spotify_title(str(title))} audio")
+
+    def _spotify_track_page_meta(self, query: str) -> SpotifyTrackMeta | None:
+        try:
+            page = self._spotify_fetch_page(query)
+        except OSError:
+            return None
+        title = self._meta_content(page, "og:title")
+        description = self._meta_content(page, "og:description")
+        if not title:
+            return None
+
+        artists: list[str] = []
+        if description:
+            artist_text = re.split(r"\s+[·•]\s+|\s+-\s+|ﾂｷ", description, maxsplit=1)[0].strip()
+            if artist_text and artist_text.lower() not in title.lower():
+                artists = [
+                    self._clean_html_text(part)
+                    for part in re.split(r",|&|\band\b|、", artist_text)
+                    if self._clean_html_text(part)
+                ]
+        return SpotifyTrackMeta(title=self._clean_spotify_title(title), artists=artists)
 
     def _spotify_query_meta(self, query: str) -> SpotifyTrackMeta:
         cleaned = re.sub(r"\bofficial audio\b|\baudio\b", "", query, flags=re.IGNORECASE).strip()
@@ -550,6 +604,25 @@ class Resolver:
         if not match:
             return None
         return html_lib.unescape(match.group(1)).strip()
+
+    @staticmethod
+    def _attribute_content(page: str, attribute_name: str) -> str | None:
+        pattern = rf'{re.escape(attribute_name)}="([^"]*)"'
+        match = re.search(pattern, page)
+        if not match:
+            return None
+        return html_lib.unescape(match.group(1)).strip()
+
+    @staticmethod
+    def _clean_html_text(value: str) -> str:
+        value = re.sub(r"<[^>]+>", " ", value)
+        return re.sub(r"\s+", " ", html_lib.unescape(value)).strip()
+
+    @staticmethod
+    def _spotify_fetch_page(url: str) -> str:
+        request = Request(url, headers={"User-Agent": "Mozilla/5.0 Kleebot/1.0"})
+        with urlopen(request, timeout=12) as response:
+            return response.read().decode("utf-8", errors="replace")
 
     def _normalize_query(self, query: str) -> str:
         query = query.strip()
