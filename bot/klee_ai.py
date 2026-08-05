@@ -95,7 +95,7 @@ class KleeAI:
     async def generate_image(self, *, prompt: str) -> bytes:
         if not self.enabled:
             raise RuntimeError("OPENAI_API_KEY is missing.")
-        response = await self._get_client().images.with_options(timeout=self.image_timeout).generate(
+        response = await self._get_client().with_options(timeout=self.image_timeout).images.generate(
             model=self.image_model,
             prompt=prompt,
             size=self.image_size,
