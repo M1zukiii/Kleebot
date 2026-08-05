@@ -53,6 +53,17 @@ class VideoMetadata:
         return "\n".join(parts)
 
 
+@dataclass
+class SpotifyTrackMeta:
+    title: str
+    artists: list[str]
+    duration: int | None = None
+
+    def search_query(self) -> str:
+        artist_text = " ".join(self.artists[:3])
+        return f"{self.title} {artist_text} official audio".strip()
+
+
 class Resolver:
     def __init__(self) -> None:
         self.cookies = os.getenv("YTDLP_COOKIES", "/app/data/cookies.txt")
@@ -107,6 +118,8 @@ class Resolver:
 
     def _resolve_sync(self, query: str, requester: str) -> Track:
         original_query = query
+        if self._is_spotify_track_url(original_query.strip()):
+            return self._resolve_spotify_track_sync(original_query.strip(), requester)
         query = self._normalize_query(query)
         target = query if self._looks_like_url(query) else f"ytsearch1:{query}"
         is_niconico = self._is_niconico_query(query)
@@ -223,26 +236,25 @@ class Resolver:
         kind, spotify_id = match.groups()
         tracks = self._spotify_collection_tracks(kind, spotify_id, limit)
         resolved: list[Track] = []
-        for title, artists in tracks:
+        for spotify_track in tracks:
             if len(resolved) >= limit:
                 break
-            query = f"{title} {' '.join(artists)} audio"
             try:
-                resolved.append(self._resolve_sync(query, requester))
+                resolved.append(self._resolve_spotify_search_sync(spotify_track, requester))
             except Exception as exc:
-                print(f"spotify playlist entry skipped: {query}: {exc}", flush=True)
+                print(f"spotify playlist entry skipped: {spotify_track.search_query()}: {exc}", flush=True)
         if not resolved:
             raise RuntimeError("No playable Spotify entries found.")
         return resolved
 
-    def _spotify_collection_tracks(self, kind: str, spotify_id: str, limit: int) -> list[tuple[str, list[str]]]:
+    def _spotify_collection_tracks(self, kind: str, spotify_id: str, limit: int) -> list[SpotifyTrackMeta]:
         token = self._spotify_access_token()
         if kind == "album":
             next_url = f"https://api.spotify.com/v1/albums/{spotify_id}/tracks?limit={min(limit, 50)}"
         else:
             next_url = f"https://api.spotify.com/v1/playlists/{spotify_id}/tracks?limit={min(limit, 50)}"
 
-        tracks: list[tuple[str, list[str]]] = []
+        tracks: list[SpotifyTrackMeta] = []
         while next_url and len(tracks) < limit:
             payload = self._spotify_get(next_url, token)
             for item in payload.get("items", []):
@@ -252,7 +264,14 @@ class Resolver:
                 title = track.get("name")
                 artists = [artist.get("name") for artist in track.get("artists", []) if artist.get("name")]
                 if title and artists:
-                    tracks.append((str(title), [str(artist) for artist in artists]))
+                    duration = track.get("duration_ms")
+                    tracks.append(
+                        SpotifyTrackMeta(
+                            title=str(title),
+                            artists=[str(artist) for artist in artists],
+                            duration=int(duration / 1000) if isinstance(duration, int) else None,
+                        )
+                    )
                 if len(tracks) >= limit:
                     break
             next_url = payload.get("next")
@@ -350,6 +369,136 @@ class Resolver:
         if filepath:
             return str(filepath)
         return None
+
+    def _resolve_spotify_track_sync(self, url: str, requester: str) -> Track:
+        meta = self._spotify_track_meta(url)
+        return self._resolve_spotify_search_sync(meta, requester)
+
+    def _resolve_spotify_search_sync(self, meta: SpotifyTrackMeta, requester: str) -> Track:
+        search_query = meta.search_query()
+        options: dict[str, Any] = {
+            "format": "bestaudio/best",
+            "noplaylist": True,
+            "quiet": True,
+            "no_warnings": True,
+            "default_search": "auto",
+            "source_address": "0.0.0.0",
+        }
+        if self.cookies and os.path.exists(self.cookies):
+            options["cookiefile"] = self.cookies
+
+        with yt_dlp.YoutubeDL(options) as ydl:
+            data = ydl.extract_info(f"ytsearch8:{search_query}", download=False)
+
+        entries = [entry for entry in (data or {}).get("entries", []) if entry]
+        if not entries:
+            return self._resolve_sync(search_query, requester)
+
+        best = max(entries, key=lambda entry: self._spotify_candidate_score(meta, entry))
+        best_url = best.get("webpage_url") or best.get("url")
+        if not best_url:
+            return self._resolve_sync(search_query, requester)
+
+        track = self._resolve_sync(str(best_url), requester)
+        track.title = f"Spotify match: {track.title}"
+        return track
+
+    def _spotify_track_meta(self, query: str) -> SpotifyTrackMeta:
+        if self.spotify_client_id and self.spotify_client_secret:
+            parsed = urlparse(query)
+            match = re.match(r"^/track/([^/?#]+)", parsed.path)
+            if match:
+                try:
+                    token = self._spotify_access_token()
+                    payload = self._spotify_get(f"https://api.spotify.com/v1/tracks/{match.group(1)}", token)
+                    title = payload.get("name")
+                    artists = [artist.get("name") for artist in payload.get("artists", []) if artist.get("name")]
+                    duration = payload.get("duration_ms")
+                    if title and artists:
+                        return SpotifyTrackMeta(
+                            title=str(title),
+                            artists=[str(artist) for artist in artists],
+                            duration=int(duration / 1000) if isinstance(duration, int) else None,
+                        )
+                except Exception as exc:
+                    print(f"spotify api track metadata failed: {exc}", flush=True)
+
+        page_query = self._spotify_track_page_query(query)
+        if page_query:
+            return self._spotify_query_meta(page_query)
+
+        oembed_url = f"https://open.spotify.com/oembed?url={quote(query, safe='')}"
+        request = Request(oembed_url, headers={"User-Agent": "Kleebot/1.0"})
+        with urlopen(request, timeout=10) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+
+        title = payload.get("title")
+        if not title:
+            raise RuntimeError("Could not read Spotify track metadata.")
+
+        return self._spotify_query_meta(f"{self._clean_spotify_title(str(title))} audio")
+
+    def _spotify_query_meta(self, query: str) -> SpotifyTrackMeta:
+        cleaned = re.sub(r"\bofficial audio\b|\baudio\b", "", query, flags=re.IGNORECASE).strip()
+        parts = cleaned.split()
+        if len(parts) <= 1:
+            return SpotifyTrackMeta(title=cleaned or query, artists=[])
+        return SpotifyTrackMeta(title=cleaned, artists=[])
+
+    def _spotify_candidate_score(self, meta: SpotifyTrackMeta, entry: dict[str, Any]) -> float:
+        haystack = self._normalize_score_text(
+            " ".join(
+                str(value)
+                for value in [
+                    entry.get("title"),
+                    entry.get("uploader"),
+                    entry.get("channel"),
+                    entry.get("description"),
+                ]
+                if value
+            )
+        )
+        title_tokens = self._score_tokens(meta.title)
+        artist_tokens = {token for artist in meta.artists for token in self._score_tokens(artist)}
+
+        score = 0.0
+        if title_tokens:
+            score += 60.0 * sum(1 for token in title_tokens if token in haystack) / len(title_tokens)
+        if artist_tokens:
+            score += 30.0 * sum(1 for token in artist_tokens if token in haystack) / len(artist_tokens)
+
+        title = str(entry.get("title") or "").lower()
+        if "official" in title:
+            score += 6.0
+        if "audio" in title or "lyrics" in title or "mv" in title or "video" in title:
+            score += 3.0
+        if any(bad in title for bad in ["cover", "karaoke", "nightcore", "sped up", "slowed", "remix"]):
+            score -= 18.0
+
+        duration = entry.get("duration")
+        if meta.duration and isinstance(duration, (int, float)):
+            delta = abs(float(duration) - float(meta.duration))
+            if delta <= 2:
+                score += 25.0
+            elif delta <= 5:
+                score += 18.0
+            elif delta <= 10:
+                score += 10.0
+            elif delta >= 30:
+                score -= min(24.0, delta / 3.0)
+        return score
+
+    @staticmethod
+    def _score_tokens(value: str) -> set[str]:
+        return {
+            token
+            for token in re.findall(r"[\w\u3040-\u30ff\u3400-\u9fff]+", value.lower())
+            if len(token) > 1
+        }
+
+    @staticmethod
+    def _normalize_score_text(value: str) -> str:
+        return " ".join(Resolver._score_tokens(value))
 
     def _spotify_track_query(self, query: str) -> str:
         if not self._is_spotify_track_url(query):
