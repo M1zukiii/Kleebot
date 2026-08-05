@@ -54,10 +54,17 @@ class VideoMetadata:
 class Resolver:
     def __init__(self) -> None:
         self.cookies = os.getenv("YTDLP_COOKIES", "/app/data/cookies.txt")
+        self.spotify_client_id = os.getenv("SPOTIFY_CLIENT_ID")
+        self.spotify_client_secret = os.getenv("SPOTIFY_CLIENT_SECRET")
+        self._spotify_token: str | None = None
 
     async def resolve(self, query: str, requester: str) -> Track:
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(None, self._resolve_sync, query, requester)
+
+    async def resolve_playlist(self, query: str, requester: str, limit: int = 50) -> list[Track]:
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(None, self._resolve_playlist_sync, query, requester, limit)
 
     async def video_metadata(self, url: str) -> VideoMetadata:
         loop = asyncio.get_running_loop()
@@ -145,6 +152,140 @@ class Resolver:
             requester=requester,
             http_headers=data.get("http_headers") or {},
         )
+
+    def _resolve_playlist_sync(self, query: str, requester: str, limit: int) -> list[Track]:
+        original_query = query.strip()
+        if self._is_spotify_album_or_playlist_url(original_query):
+            return self._resolve_spotify_collection_sync(original_query, requester, limit)
+
+        target = self._normalize_query(original_query)
+        if not self._looks_like_url(target):
+            raise RuntimeError("Playlist playback needs a playlist, album, or collection URL.")
+
+        options: dict[str, Any] = {
+            "format": "bestaudio/best",
+            "extract_flat": "in_playlist",
+            "ignoreerrors": True,
+            "quiet": True,
+            "no_warnings": True,
+            "source_address": "0.0.0.0",
+        }
+        if self.cookies and os.path.exists(self.cookies):
+            options["cookiefile"] = self.cookies
+
+        with yt_dlp.YoutubeDL(options) as ydl:
+            data = ydl.extract_info(target, download=False)
+
+        if data is None:
+            raise RuntimeError("No playlist entries found.")
+
+        entries = data.get("entries") if isinstance(data, dict) else None
+        if not entries:
+            return [self._resolve_sync(original_query, requester)]
+
+        tracks: list[Track] = []
+        for entry in entries:
+            if not entry or len(tracks) >= limit:
+                continue
+            entry_url = entry.get("webpage_url") or entry.get("url")
+            if not entry_url:
+                continue
+            if not self._looks_like_url(str(entry_url)):
+                ie_key = str(entry.get("ie_key") or data.get("extractor_key") or "").lower()
+                if "youtube" in ie_key:
+                    entry_url = f"https://www.youtube.com/watch?v={entry_url}"
+                elif "bilibili" in ie_key:
+                    entry_url = f"https://www.bilibili.com/video/{entry_url}"
+                elif "nico" in ie_key:
+                    entry_url = f"https://www.nicovideo.jp/watch/{entry_url}"
+            try:
+                tracks.append(self._resolve_sync(str(entry_url), requester))
+            except Exception as exc:
+                print(f"playlist entry skipped: {entry_url}: {exc}", flush=True)
+
+        if not tracks:
+            raise RuntimeError("No playable playlist entries found.")
+        return tracks
+
+    def _resolve_spotify_collection_sync(self, url: str, requester: str, limit: int) -> list[Track]:
+        if not self.spotify_client_id or not self.spotify_client_secret:
+            raise RuntimeError(
+                "Spotify album/playlist playback needs SPOTIFY_CLIENT_ID and SPOTIFY_CLIENT_SECRET. "
+                "Spotify track links still work."
+            )
+
+        parsed = urlparse(url)
+        match = re.match(r"^/(album|playlist)/([^/?#]+)", parsed.path)
+        if not match:
+            raise RuntimeError("Unsupported Spotify URL.")
+        kind, spotify_id = match.groups()
+        tracks = self._spotify_collection_tracks(kind, spotify_id, limit)
+        resolved: list[Track] = []
+        for title, artists in tracks:
+            if len(resolved) >= limit:
+                break
+            query = f"{title} {' '.join(artists)} audio"
+            try:
+                resolved.append(self._resolve_sync(query, requester))
+            except Exception as exc:
+                print(f"spotify playlist entry skipped: {query}: {exc}", flush=True)
+        if not resolved:
+            raise RuntimeError("No playable Spotify entries found.")
+        return resolved
+
+    def _spotify_collection_tracks(self, kind: str, spotify_id: str, limit: int) -> list[tuple[str, list[str]]]:
+        token = self._spotify_access_token()
+        if kind == "album":
+            next_url = f"https://api.spotify.com/v1/albums/{spotify_id}/tracks?limit={min(limit, 50)}"
+        else:
+            next_url = f"https://api.spotify.com/v1/playlists/{spotify_id}/tracks?limit={min(limit, 50)}"
+
+        tracks: list[tuple[str, list[str]]] = []
+        while next_url and len(tracks) < limit:
+            payload = self._spotify_get(next_url, token)
+            for item in payload.get("items", []):
+                track = item.get("track") if kind == "playlist" else item
+                if not isinstance(track, dict) or track.get("is_local"):
+                    continue
+                title = track.get("name")
+                artists = [artist.get("name") for artist in track.get("artists", []) if artist.get("name")]
+                if title and artists:
+                    tracks.append((str(title), [str(artist) for artist in artists]))
+                if len(tracks) >= limit:
+                    break
+            next_url = payload.get("next")
+        return tracks
+
+    def _spotify_access_token(self) -> str:
+        if self._spotify_token:
+            return self._spotify_token
+        import base64
+
+        credentials = f"{self.spotify_client_id}:{self.spotify_client_secret}".encode("utf-8")
+        request = Request(
+            "https://accounts.spotify.com/api/token",
+            data=b"grant_type=client_credentials",
+            headers={
+                "Authorization": f"Basic {base64.b64encode(credentials).decode('ascii')}",
+                "Content-Type": "application/x-www-form-urlencoded",
+            },
+        )
+        with urlopen(request, timeout=15) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+        token = payload.get("access_token")
+        if not token:
+            raise RuntimeError("Could not get Spotify access token.")
+        self._spotify_token = str(token)
+        return self._spotify_token
+
+    @staticmethod
+    def _spotify_get(url: str, token: str) -> dict[str, Any]:
+        request = Request(url, headers={"Authorization": f"Bearer {token}"})
+        with urlopen(request, timeout=15) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+        if not isinstance(payload, dict):
+            raise RuntimeError("Spotify returned an unexpected response.")
+        return payload
 
     def _resolve_niconico_sync(
         self,
@@ -244,6 +385,13 @@ class Resolver:
             return False
         parsed = urlparse(value)
         return parsed.netloc.endswith("spotify.com") and re.match(r"^/track/[^/]+", parsed.path) is not None
+
+    @staticmethod
+    def _is_spotify_album_or_playlist_url(value: str) -> bool:
+        if not Resolver._looks_like_url(value):
+            return False
+        parsed = urlparse(value)
+        return parsed.netloc.endswith("spotify.com") and re.match(r"^/(album|playlist)/[^/]+", parsed.path) is not None
 
     @staticmethod
     def _is_niconico_query(value: str) -> bool:

@@ -83,6 +83,7 @@ KLEE_CONTEXT_CHARS = int(os.getenv("KLEE_CONTEXT_CHARS", "900"))
 KLEE_VIDEO_METADATA_LIMIT = int(os.getenv("KLEE_VIDEO_METADATA_LIMIT", "2"))
 KLEE_VISION_DAILY_LIMIT = int(os.getenv("KLEE_VISION_DAILY_LIMIT", "3"))
 KLEE_IMAGE_DAILY_LIMIT = int(os.getenv("KLEE_IMAGE_DAILY_LIMIT", "1"))
+PLAYLIST_LIMIT = int(os.getenv("PLAYLIST_LIMIT", "50"))
 VISION_LIMIT_MESSAGE = "荣誉骑士今天让 Klee 看太多图片啦，Klee 的眼睛要变成蹦蹦炸弹了... 明天再来吧！"
 IMAGE_LIMIT_MESSAGE = "荣誉骑士今天已经让 Klee 画过图啦，画笔要休息到明天哦~"
 
@@ -349,6 +350,23 @@ async def handle_play(interaction: discord.Interaction, query: str) -> None:
         await respond(interaction, f"Could not play that: {exc}")
 
 
+async def handle_playlist(interaction: discord.Interaction, query: str) -> None:
+    await defer(interaction)
+    try:
+        if interaction.guild is None:
+            raise RuntimeError("Use this in a server.")
+        print(f"playlist requested in {interaction.guild.id}: {query}", flush=True)
+        tracks = await get_player(interaction.guild).enqueue_playlist(interaction, query, PLAYLIST_LIMIT)
+        profile_stats.record_play(interaction.guild.id, interaction.user.id)
+        first = tracks[0]
+        await respond(
+            interaction,
+            f"Queued {len(tracks)} track(s) from playlist. First: [{first.title}]({first.webpage_url})",
+        )
+    except Exception as exc:
+        await respond(interaction, f"Could not queue that playlist: {exc}")
+
+
 async def handle_skip(interaction: discord.Interaction) -> None:
     await defer(interaction)
     print(f"skip requested in {interaction.guild.id if interaction.guild else 'dm'}", flush=True)
@@ -604,6 +622,24 @@ def bomb_text(target: discord.abc.User) -> str:
 @app_commands.describe(query="Song name, search text, or a YouTube, Bilibili, NicoNico, Spotify link")
 async def slash_play(interaction: discord.Interaction, query: str) -> None:
     await handle_play(interaction, query)
+
+
+@bot.tree.command(name="playlist", description="Queue tracks from a YouTube, Bilibili, or NicoNico playlist URL.")
+@app_commands.describe(query="Playlist, album, collection, or series URL")
+async def slash_playlist(interaction: discord.Interaction, query: str) -> None:
+    await handle_playlist(interaction, query)
+
+
+@bot.tree.command(name="playalbum", description="Queue tracks from a playlist or album URL.")
+@app_commands.describe(query="Playlist, album, collection, or series URL")
+async def slash_playalbum(interaction: discord.Interaction, query: str) -> None:
+    await handle_playlist(interaction, query)
+
+
+@bot.tree.command(name="专辑", description="播放专辑、歌单、合集或列表链接。")
+@app_commands.describe(query="专辑、歌单、合集或列表链接")
+async def slash_playlist_cn(interaction: discord.Interaction, query: str) -> None:
+    await handle_playlist(interaction, query)
 
 
 @bot.tree.command(name="播放", description="播放 YouTube / B站 / NicoNico / Spotify 链接，或直接搜索歌曲。")
@@ -876,6 +912,21 @@ async def prefix_play(ctx: commands.Context, *, query: str) -> None:
         await message.edit(content=f"Queued: {track.title}\n{track.webpage_url}")
     except Exception as exc:
         await message.edit(content=f"Could not play that: {exc}")
+
+
+@bot.command(name="playlist", aliases=["playalbum", "album", "专辑", "歌单", "列表"])
+async def prefix_playlist(ctx: commands.Context, *, query: str) -> None:
+    if ctx.guild is None:
+        return
+    interaction = _ContextInteraction(ctx)
+    message = await ctx.send("Resolving playlist...")
+    try:
+        tracks = await get_player(ctx.guild).enqueue_playlist(interaction, query, PLAYLIST_LIMIT)
+        profile_stats.record_play(ctx.guild.id, ctx.author.id)
+        first = tracks[0]
+        await message.edit(content=f"Queued {len(tracks)} track(s). First: {first.title}\n{first.webpage_url}")
+    except Exception as exc:
+        await message.edit(content=f"Could not queue that playlist: {exc}")
 
 
 @bot.command(name="skip", aliases=["s"])

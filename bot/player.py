@@ -45,6 +45,14 @@ class GuildPlayer:
         await self.ensure_playing(interaction)
         return track
 
+    async def enqueue_playlist(self, interaction: discord.Interaction, query: str, limit: int = 50) -> list[Track]:
+        if interaction.user is None:
+            raise RuntimeError("Missing Discord user.")
+        tracks = await self.resolver.resolve_playlist(query, interaction.user.display_name, limit)
+        self.queue.extend(tracks)
+        await self.ensure_playing(interaction)
+        return tracks
+
     async def ensure_voice(self, interaction: discord.Interaction) -> discord.VoiceClient:
         if interaction.guild is None:
             raise RuntimeError("This command can only be used in a server.")

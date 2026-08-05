@@ -1,5 +1,6 @@
 Kleebot 指令：
 `/play` / `/播放` 播放 YouTube / B站 / NicoNico / Spotify 链接，或直接搜索歌曲
+`/playlist` / `/playalbum` / `/专辑` 播放专辑、歌单、合集或列表链接
 `/join` / `/加入` 加入你所在的语音频道
 `/queue` / `/队列` 查看当前播放队列
 `/nowplaying` / `/正在播放` 查看当前歌曲、队列数量、音量、滤镜和循环状态

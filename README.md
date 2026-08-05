@@ -7,6 +7,7 @@ Self-hosted Discord music bot for YouTube, Bilibili, NicoNico, and Spotify track
 - Slash commands for music playback, queue control, volume, and daily fortune drawing.
 - Prefix fallback commands for the basics: `!play`, `!skip`, `!stop`, `!queue`, `!leave`, `!求签`, and `!help`.
 - Per-server playback queue.
+- Playlist and album queueing with `/playlist`, `/playalbum`, and `/专辑`.
 - Daily fortune drawing with `/求签`, `/fortune`, or `!求签`.
 - Fortune commands are limited to once per user until the daily UTC/GMT 09:00 reset.
 - Bad fortune has a 10% to 39.6% chance to redraw, with the first result crossed out.
@@ -24,7 +25,8 @@ Self-hosted Discord music bot for YouTube, Bilibili, NicoNico, and Spotify track
 2. Put your Discord bot token in `DISCORD_TOKEN`.
 3. Optional: set `GUILD_ID` to your Discord server ID for faster slash-command syncing while testing.
 4. Optional: set `OPENAI_API_KEY` and `OPENAI_MODEL=gpt-5.6-luna` to enable Klee-style AI replies when the bot is mentioned. Edit `klee_prompt.txt` to customize the persona. Use `KLEE_CONTEXT_MESSAGES` and `KLEE_CONTEXT_CHARS` to limit recent @Klee context.
-5. Start the bot:
+5. Optional: set `SPOTIFY_CLIENT_ID` and `SPOTIFY_CLIENT_SECRET` to enable Spotify album and playlist queueing.
+6. Start the bot:
 
 ```powershell
 docker compose up -d --build
@@ -40,6 +42,7 @@ docker compose logs -f kleebot
 
 - `/play query` - 播放 YouTube / B站 / NicoNico / Spotify 链接，或直接搜索歌曲。
 - `/播放 query` - `/play` 的中文版本。
+- `/playlist query` / `/playalbum query` / `/专辑 query` - 播放 YouTube、B站、NicoNico 列表，或已配置 Spotify API 的 Spotify 专辑/歌单。
 - `/join` / `/加入` - 让 Kleebot 加入你所在的语音频道。
 - `/queue` - 查看当前播放队列。
 - `/队列` - `/queue` 的中文版本。
