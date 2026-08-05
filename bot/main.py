@@ -250,6 +250,7 @@ async def defer(interaction: discord.Interaction) -> bool:
 @bot.event
 async def on_ready() -> None:
     print(f"ready: {bot.user} in {len(bot.guilds)} guild(s)", flush=True)
+    print(klee_ai.config_summary(), flush=True)
     try:
         if GUILD_ID:
             guild = discord.Object(id=int(GUILD_ID))

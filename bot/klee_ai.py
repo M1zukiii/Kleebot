@@ -29,6 +29,11 @@ class KleeAI:
     def enabled(self) -> bool:
         return bool(self.api_key)
 
+    def config_summary(self) -> str:
+        base = "set" if self.base_url else "default"
+        key = "set" if self.api_key else "missing"
+        return f"ai key={key} model={self.model} base_url={base} timeout={self.timeout:g}"
+
     def _get_client(self):
         if self._client is None:
             from openai import AsyncOpenAI
@@ -85,7 +90,13 @@ class KleeAI:
             )
             text = (response.output_text or "").strip()
         except Exception as exc:
-            print(f"klee ai reply failed: {exc}", flush=True)
+            print(
+                f"klee ai reply failed: {type(exc).__name__}: {exc}; {self.config_summary()}",
+                flush=True,
+            )
+            cause = getattr(exc, "__cause__", None)
+            if cause:
+                print(f"klee ai reply cause: {type(cause).__name__}: {cause}", flush=True)
             return FALLBACK_REPLY
 
         if not text:
