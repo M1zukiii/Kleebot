@@ -620,7 +620,7 @@ class Resolver:
 
     @staticmethod
     def _spotify_fetch_page(url: str) -> str:
-        request = Request(url, headers={"User-Agent": "Mozilla/5.0 Kleebot/1.0"})
+        request = Request(url, headers={"User-Agent": "Mozilla/5.0"})
         with urlopen(request, timeout=12) as response:
             return response.read().decode("utf-8", errors="replace")
 
