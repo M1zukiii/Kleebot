@@ -126,6 +126,7 @@ class Resolver:
         options: dict[str, Any] = {
             "format": "bestaudio/best",
             "noplaylist": True,
+            "ignoreerrors": True,
             "quiet": True,
             "no_warnings": True,
             "default_search": "auto",
@@ -379,6 +380,7 @@ class Resolver:
         options: dict[str, Any] = {
             "format": "bestaudio/best",
             "noplaylist": True,
+            "ignoreerrors": True,
             "quiet": True,
             "no_warnings": True,
             "default_search": "auto",
