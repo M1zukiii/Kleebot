@@ -179,6 +179,10 @@ def extract_video_urls(text: str) -> list[str]:
     return video_urls[:KLEE_VIDEO_METADATA_LIMIT]
 
 
+def is_spotify_track_url(text: str) -> bool:
+    return "open.spotify.com/track/" in text.lower()
+
+
 async def video_metadata_for_prompt(urls: list[str]) -> list[str]:
     metadata: list[str] = []
     for url in urls:
@@ -345,7 +349,8 @@ async def handle_play(interaction: discord.Interaction, query: str) -> None:
         print(f"play requested in {interaction.guild.id}: {query}", flush=True)
         track = await get_player(interaction.guild).enqueue(interaction, query)
         profile_stats.record_play(interaction.guild.id, interaction.user.id)
-        await respond(interaction, f"Queued: [{track.title}]({track.webpage_url})")
+        prefix = "Queued Spotify match via YouTube audio" if is_spotify_track_url(query) else "Queued"
+        await respond(interaction, f"{prefix}: [{track.title}]({track.webpage_url})")
     except Exception as exc:
         await respond(interaction, f"Could not play that: {exc}")
 
@@ -909,7 +914,8 @@ async def prefix_play(ctx: commands.Context, *, query: str) -> None:
     try:
         track = await get_player(ctx.guild).enqueue(interaction, query)
         profile_stats.record_play(ctx.guild.id, ctx.author.id)
-        await message.edit(content=f"Queued: {track.title}\n{track.webpage_url}")
+        prefix = "Queued Spotify match via YouTube audio" if is_spotify_track_url(query) else "Queued"
+        await message.edit(content=f"{prefix}: {track.title}\n{track.webpage_url}")
     except Exception as exc:
         await message.edit(content=f"Could not play that: {exc}")
 

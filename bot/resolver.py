@@ -1,4 +1,5 @@
 import asyncio
+import html as html_lib
 import json
 import os
 import re
@@ -354,6 +355,10 @@ class Resolver:
         if not self._is_spotify_track_url(query):
             return query
 
+        page_query = self._spotify_track_page_query(query)
+        if page_query:
+            return page_query
+
         oembed_url = f"https://open.spotify.com/oembed?url={quote(query, safe='')}"
         request = Request(oembed_url, headers={"User-Agent": "Kleebot/1.0"})
         with urlopen(request, timeout=10) as response:
@@ -364,6 +369,36 @@ class Resolver:
             raise RuntimeError("Could not read Spotify track metadata.")
 
         return f"{self._clean_spotify_title(title)} audio"
+
+    def _spotify_track_page_query(self, query: str) -> str | None:
+        request = Request(query, headers={"User-Agent": "Mozilla/5.0 Kleebot/1.0"})
+        try:
+            with urlopen(request, timeout=12) as response:
+                page = response.read().decode("utf-8", errors="replace")
+        except OSError:
+            return None
+
+        title = self._meta_content(page, "og:title")
+        description = self._meta_content(page, "og:description")
+        if not title:
+            return None
+
+        artist = None
+        if description:
+            artist = description.split("·", 1)[0].strip()
+        pieces = [title]
+        if artist and artist.lower() not in title.lower():
+            pieces.append(artist)
+        pieces.append("audio")
+        return " ".join(pieces)
+
+    @staticmethod
+    def _meta_content(page: str, property_name: str) -> str | None:
+        pattern = rf'<meta\s+property="{re.escape(property_name)}"\s+content="([^"]*)"'
+        match = re.search(pattern, page)
+        if not match:
+            return None
+        return html_lib.unescape(match.group(1)).strip()
 
     def _normalize_query(self, query: str) -> str:
         query = query.strip()
