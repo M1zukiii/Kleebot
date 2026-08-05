@@ -1,6 +1,7 @@
 import base64
 import os
 from pathlib import Path
+from urllib.parse import urlparse
 
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -21,13 +22,29 @@ class KleeAI:
         self.image_size = os.getenv("OPENAI_IMAGE_SIZE", "1024x1024")
         self.timeout = float(os.getenv("OPENAI_TIMEOUT", "60"))
         self.image_timeout = float(os.getenv("OPENAI_IMAGE_TIMEOUT", "180"))
-        self.base_url = os.getenv("OPENAI_BASE_URL")
+        self.base_url = self._clean_base_url(os.getenv("OPENAI_BASE_URL"))
         self.prompt_file = Path(os.getenv("KLEE_PROMPT_FILE", str(DEFAULT_PROMPT_FILE)))
         self._client = None
 
     @property
     def enabled(self) -> bool:
         return bool(self.api_key)
+
+    @staticmethod
+    def _clean_base_url(value: str | None) -> str | None:
+        value = (value or "").strip()
+        if not value:
+            os.environ.pop("OPENAI_BASE_URL", None)
+            return None
+        parsed = urlparse(value)
+        if parsed.scheme not in {"http", "https"}:
+            print(
+                "OPENAI_BASE_URL ignored: it must start with http:// or https://",
+                flush=True,
+            )
+            os.environ.pop("OPENAI_BASE_URL", None)
+            return None
+        return value.rstrip("/")
 
     def config_summary(self) -> str:
         base = "set" if self.base_url else "default"
