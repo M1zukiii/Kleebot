@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import quote, urlparse
 from urllib.request import Request, urlopen
+from urllib.error import HTTPError
 
 import yt_dlp
 from yt_dlp.utils import DownloadError
@@ -281,8 +282,17 @@ class Resolver:
     @staticmethod
     def _spotify_get(url: str, token: str) -> dict[str, Any]:
         request = Request(url, headers={"Authorization": f"Bearer {token}"})
-        with urlopen(request, timeout=15) as response:
-            payload = json.loads(response.read().decode("utf-8"))
+        try:
+            with urlopen(request, timeout=15) as response:
+                payload = json.loads(response.read().decode("utf-8"))
+        except HTTPError as exc:
+            body = exc.read().decode("utf-8", errors="replace").strip()
+            if "premium subscription required" in body.lower():
+                raise RuntimeError(
+                    "Spotify album/playlist playback needs Premium on the Spotify account that owns the developer app. "
+                    "After upgrading, Spotify says it can take a few hours before requests work."
+                ) from exc
+            raise RuntimeError(f"Spotify API request failed: HTTP {exc.code} {body[:240]}") from exc
         if not isinstance(payload, dict):
             raise RuntimeError("Spotify returned an unexpected response.")
         return payload
