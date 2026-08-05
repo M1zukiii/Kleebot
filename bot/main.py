@@ -603,6 +603,11 @@ async def handle_imagine(interaction: discord.Interaction, prompt: str) -> None:
     try:
         image = await klee_ai.generate_image(prompt=prompt[:32000])
     except Exception as exc:
+        ai_usage.refund(
+            interaction.guild.id if interaction.guild else None,
+            interaction.user.id,
+            "image",
+        )
         print(f"image generation failed: {exc}", flush=True)
         await respond(interaction, f"Klee 画不出来这个... {exc}")
         return
@@ -1075,6 +1080,7 @@ async def prefix_imagine(ctx: commands.Context, *, prompt: str) -> None:
     try:
         image = await klee_ai.generate_image(prompt=prompt.strip()[:32000])
     except Exception as exc:
+        ai_usage.refund(ctx.guild.id if ctx.guild else None, ctx.author.id, "image")
         print(f"image generation failed: {exc}", flush=True)
         await message.edit(content=f"Klee 画不出来这个... {exc}")
         return

@@ -23,6 +23,18 @@ class AiUsageStore:
         self._save(data)
         return True, limit - used
 
+    def refund(self, guild_id: int | None, user_id: int, kind: str) -> None:
+        data = self._load()
+        profile = self._profile(data, guild_id, user_id)
+        period = self._period_key()
+        if profile.get("period") != period:
+            return
+        used = int(profile.get(kind, 0))
+        if used <= 0:
+            return
+        profile[kind] = used - 1
+        self._save(data)
+
     def _profile(self, data: dict[str, Any], guild_id: int | None, user_id: int) -> dict[str, Any]:
         guild_key = str(guild_id or "dm")
         user_key = str(user_id)

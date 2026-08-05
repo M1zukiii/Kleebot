@@ -19,6 +19,8 @@ class KleeAI:
         self.model = os.getenv("OPENAI_MODEL", "gpt-5.6-luna")
         self.image_model = os.getenv("OPENAI_IMAGE_MODEL", "gpt-image-1.5")
         self.image_size = os.getenv("OPENAI_IMAGE_SIZE", "1024x1024")
+        self.timeout = float(os.getenv("OPENAI_TIMEOUT", "60"))
+        self.image_timeout = float(os.getenv("OPENAI_IMAGE_TIMEOUT", "180"))
         self.base_url = os.getenv("OPENAI_BASE_URL")
         self.prompt_file = Path(os.getenv("KLEE_PROMPT_FILE", str(DEFAULT_PROMPT_FILE)))
         self._client = None
@@ -31,7 +33,7 @@ class KleeAI:
         if self._client is None:
             from openai import AsyncOpenAI
 
-            kwargs = {"api_key": self.api_key, "timeout": 20.0}
+            kwargs = {"api_key": self.api_key, "timeout": self.timeout}
             if self.base_url:
                 kwargs["base_url"] = self.base_url
             self._client = AsyncOpenAI(**kwargs)
@@ -93,7 +95,7 @@ class KleeAI:
     async def generate_image(self, *, prompt: str) -> bytes:
         if not self.enabled:
             raise RuntimeError("OPENAI_API_KEY is missing.")
-        response = await self._get_client().images.generate(
+        response = await self._get_client().images.with_options(timeout=self.image_timeout).generate(
             model=self.image_model,
             prompt=prompt,
             size=self.image_size,
