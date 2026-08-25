@@ -181,8 +181,9 @@ class KleeAI:
         if plain_language:
             prompt = await self._novelai_prompt(prompt)
         try:
-            from novelai_python import ApiCredential, GenerateImageInfer, SecretStr
+            from novelai_python import ApiCredential, GenerateImageInfer
             from novelai_python.sdk.ai.generate_image import Sampler, UCPreset
+            from pydantic import SecretStr
         except ImportError as exc:
             raise RuntimeError("novelai-python is not installed.") from exc
 
