@@ -15,7 +15,7 @@ Self-hosted Discord music bot for YouTube, Bilibili, NicoNico, and Spotify track
 - URL playback and YouTube search through `yt-dlp`.
 - Spotify track links are resolved to song metadata, then played from a YouTube search result.
 - Mention replies can use OpenAI GPT Luna with a Klee persona, including image attachments and lightweight YouTube/Bilibili/NicoNico video metadata.
-- Image generation with `/imagine`, `/生图`, `!imagine`, or `!生图`.
+- Image generation with `/imagine`, `/生图`, `!imagine`, or `!生图`; choose OpenAI or NovelAI V4.5 Full with `IMAGE_PROVIDER`.
 - Daily AI cost limits: 3 image-recognition mentions and 1 image generation per user.
 - Optional cookies file for sites that require login.
 
@@ -26,7 +26,8 @@ Self-hosted Discord music bot for YouTube, Bilibili, NicoNico, and Spotify track
 3. Optional: set `GUILD_ID` to your Discord server ID for faster slash-command syncing while testing.
 4. Optional: set `OPENAI_API_KEY` and `OPENAI_MODEL=gpt-5.6-luna` to enable Klee-style AI replies when the bot is mentioned. Edit `klee_prompt.txt` to customize the persona. Use `KLEE_CONTEXT_MESSAGES` and `KLEE_CONTEXT_CHARS` to limit recent @Klee context.
 5. Spotify track/album/playlist links use public Spotify page metadata by default. Optional: set `SPOTIFY_USE_API=true`, `SPOTIFY_CLIENT_ID`, and `SPOTIFY_CLIENT_SECRET` only if you want Spotify API fallback.
-6. Start the bot:
+6. Optional: set `IMAGE_PROVIDER=novelai` and `NOVELAI_TOKEN` to use NovelAI image generation. The default NovelAI model is `nai-diffusion-4-5-full`.
+7. Start the bot:
 
 ```powershell
 docker compose up -d --build
@@ -42,7 +43,7 @@ docker compose logs -f kleebot
 
 - `/play query` - 播放 YouTube / B站 / NicoNico / Spotify 链接，或直接搜索歌曲。
 - `/播放 query` - `/play` 的中文版本。
-- `/playlist query` / `/playalbum query` / `/专辑 query` - 播放 YouTube、B站、NicoNico 列表，或已配置 Spotify API 的 Spotify 专辑/歌单。
+- `/playlist query` / `/playalbum query` / `/专辑 query` - 播放 YouTube、B站、NicoNico 列表，或 Spotify 专辑/歌单。
 - `/join` / `/加入` - 让 Kleebot 加入你所在的语音频道。
 - `/queue` - 查看当前播放队列。
 - `/队列` - `/queue` 的中文版本。

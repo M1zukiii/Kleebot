@@ -1,7 +1,12 @@
 import base64
+import io
 import os
+import random
+import zipfile
 from pathlib import Path
 from urllib.parse import urlparse
+
+import httpx
 
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -23,6 +28,18 @@ class KleeAI:
         self.timeout = float(os.getenv("OPENAI_TIMEOUT", "60"))
         self.image_timeout = float(os.getenv("OPENAI_IMAGE_TIMEOUT", "180"))
         self.base_url = self._clean_base_url(os.getenv("OPENAI_BASE_URL"))
+        self.image_provider = os.getenv("IMAGE_PROVIDER", "openai").strip().lower()
+        self.novelai_token = os.getenv("NOVELAI_TOKEN")
+        self.novelai_model = os.getenv("NOVELAI_MODEL", "nai-diffusion-4-5-full")
+        self.novelai_width = int(os.getenv("NOVELAI_WIDTH", "1024"))
+        self.novelai_height = int(os.getenv("NOVELAI_HEIGHT", "1024"))
+        self.novelai_steps = int(os.getenv("NOVELAI_STEPS", "28"))
+        self.novelai_scale = float(os.getenv("NOVELAI_SCALE", "6.0"))
+        self.novelai_sampler = os.getenv("NOVELAI_SAMPLER", "k_euler_ancestral")
+        self.novelai_negative_prompt = os.getenv(
+            "NOVELAI_NEGATIVE_PROMPT",
+            "lowres, bad anatomy, bad hands, text, error, missing fingers, extra digit, fewer digits, cropped, worst quality, low quality, normal quality, jpeg artifacts, signature, watermark, username, blurry",
+        )
         self.prompt_file = Path(os.getenv("KLEE_PROMPT_FILE", str(DEFAULT_PROMPT_FILE)))
         self._client = None
 
@@ -49,7 +66,11 @@ class KleeAI:
     def config_summary(self) -> str:
         base = "set" if self.base_url else "default"
         key = "set" if self.api_key else "missing"
-        return f"ai key={key} model={self.model} base_url={base} timeout={self.timeout:g}"
+        novelai = "set" if self.novelai_token else "missing"
+        return (
+            f"ai key={key} model={self.model} base_url={base} timeout={self.timeout:g} "
+            f"image_provider={self.image_provider} novelai_token={novelai}"
+        )
 
     def _get_client(self):
         if self._client is None:
@@ -121,6 +142,10 @@ class KleeAI:
         return text[:1800]
 
     async def generate_image(self, *, prompt: str) -> bytes:
+        if self.image_provider == "novelai":
+            return await self._generate_novelai_image(prompt=prompt)
+        if self.image_provider != "openai":
+            raise RuntimeError("IMAGE_PROVIDER must be openai or novelai.")
         if not self.enabled:
             raise RuntimeError("OPENAI_API_KEY is missing.")
         response = await self._get_client().with_options(timeout=self.image_timeout).images.generate(
@@ -145,3 +170,55 @@ class KleeAI:
                 return result.read()
 
         raise RuntimeError("Image generation did not return image bytes.")
+
+    async def _generate_novelai_image(self, *, prompt: str) -> bytes:
+        if not self.novelai_token:
+            raise RuntimeError("NOVELAI_TOKEN is missing.")
+        payload = {
+            "input": prompt,
+            "model": self.novelai_model,
+            "action": "generate",
+            "parameters": {
+                "width": self.novelai_width,
+                "height": self.novelai_height,
+                "scale": self.novelai_scale,
+                "sampler": self.novelai_sampler,
+                "steps": self.novelai_steps,
+                "n_samples": 1,
+                "seed": random.randint(0, 2**32 - 1),
+                "uc": self.novelai_negative_prompt,
+                "qualityToggle": True,
+                "sm": False,
+                "sm_dyn": False,
+                "dynamic_thresholding": False,
+                "controlnet_strength": 1,
+                "legacy": False,
+                "add_original_image": False,
+                "cfg_rescale": 0,
+                "noise_schedule": "karras",
+                "params_version": 3,
+            },
+        }
+        headers = {
+            "Authorization": f"Bearer {self.novelai_token}",
+            "Content-Type": "application/json",
+            "Accept": "application/zip",
+        }
+        async with httpx.AsyncClient(timeout=self.image_timeout) as client:
+            response = await client.post(
+                "https://image.novelai.net/ai/generate-image",
+                json=payload,
+                headers=headers,
+            )
+        if response.status_code >= 400:
+            detail = response.text.strip().replace("\n", " ")[:240]
+            raise RuntimeError(f"NovelAI image generation failed: HTTP {response.status_code} {detail}")
+        return self._first_image_from_zip(response.content)
+
+    @staticmethod
+    def _first_image_from_zip(content: bytes) -> bytes:
+        with zipfile.ZipFile(io.BytesIO(content)) as archive:
+            for name in archive.namelist():
+                if name.lower().endswith((".png", ".jpg", ".jpeg", ".webp")):
+                    return archive.read(name)
+        raise RuntimeError("NovelAI returned no image file.")
