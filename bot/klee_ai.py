@@ -183,10 +183,12 @@ class KleeAI:
         try:
             from novelai_python import ApiCredential, GenerateImageInfer
             from novelai_python.sdk.ai.generate_image import Sampler, UCPreset
+            from loguru import logger
             from pydantic import SecretStr
         except ImportError as exc:
             raise RuntimeError("novelai-python is not installed.") from exc
 
+        logger.disable("novelai_python")
         sampler = self._novelai_enum_value(Sampler, self.novelai_sampler, Sampler.K_EULER_ANCESTRAL)
         request = GenerateImageInfer.build_generate(
             prompt=prompt,
