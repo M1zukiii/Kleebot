@@ -1,13 +1,9 @@
 import base64
-import io
 import os
 import random
 import re
-import zipfile
 from pathlib import Path
 from urllib.parse import urlparse
-
-import httpx
 
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -184,54 +180,55 @@ class KleeAI:
             raise RuntimeError("NOVELAI_TOKEN is missing.")
         if plain_language:
             prompt = await self._novelai_prompt(prompt)
-        payload = {
-            "input": prompt,
-            "model": self.novelai_model,
-            "action": "generate",
-            "parameters": {
-                "width": self.novelai_width,
-                "height": self.novelai_height,
-                "scale": self.novelai_scale,
-                "sampler": self.novelai_sampler,
-                "steps": self.novelai_steps,
-                "n_samples": 1,
-                "seed": random.randint(0, 2**32 - 1),
-                "uc": self.novelai_negative_prompt,
-                "qualityToggle": True,
-                "sm": False,
-                "sm_dyn": False,
-                "dynamic_thresholding": False,
-                "controlnet_strength": 1,
-                "legacy": False,
-                "add_original_image": False,
-                "cfg_rescale": 0,
-                "noise_schedule": "karras",
-                "params_version": 3,
-            },
-        }
-        headers = {
-            "Authorization": f"Bearer {self.novelai_token}",
-            "Content-Type": "application/json",
-            "Accept": "application/zip",
-        }
-        async with httpx.AsyncClient(timeout=self.image_timeout) as client:
-            response = await client.post(
-                "https://image.novelai.net/ai/generate-image",
-                json=payload,
-                headers=headers,
-            )
-        if response.status_code >= 400:
-            detail = response.text.strip().replace("\n", " ")[:240]
-            raise RuntimeError(f"NovelAI image generation failed: HTTP {response.status_code} {detail}")
-        return self._first_image_from_zip(response.content)
+        try:
+            from novelai_python import ApiCredential, GenerateImageInfer, SecretStr
+            from novelai_python.sdk.ai.generate_image import Sampler, UCPreset
+        except ImportError as exc:
+            raise RuntimeError("novelai-python is not installed.") from exc
+
+        sampler = self._novelai_enum_value(Sampler, self.novelai_sampler, Sampler.K_EULER_ANCESTRAL)
+        request = GenerateImageInfer.build_generate(
+            prompt=prompt,
+            model=self.novelai_model,
+            negative_prompt=self.novelai_negative_prompt,
+            ucPreset=UCPreset.TYPE0,
+            steps=self.novelai_steps,
+            sampler=sampler,
+            width=self.novelai_width,
+            height=self.novelai_height,
+            seed=random.randint(1, 4294967295 - 7),
+            qualityToggle=True,
+            decrisp_mode=False,
+            variety_boost=True,
+            furry_mode=False,
+        )
+        session = ApiCredential(api_token=SecretStr(self.novelai_token.strip()))
+        try:
+            response = await request.request(session=session)
+        except Exception as exc:
+            detail = self._novelai_error_detail(exc)
+            raise RuntimeError(f"NovelAI image generation failed: {detail}") from exc
+        if not response.files:
+            raise RuntimeError("NovelAI returned no image file.")
+        return response.files[0][1]
 
     @staticmethod
-    def _first_image_from_zip(content: bytes) -> bytes:
-        with zipfile.ZipFile(io.BytesIO(content)) as archive:
-            for name in archive.namelist():
-                if name.lower().endswith((".png", ".jpg", ".jpeg", ".webp")):
-                    return archive.read(name)
-        raise RuntimeError("NovelAI returned no image file.")
+    def _novelai_enum_value(enum_type, value: str, default):
+        try:
+            return enum_type(value)
+        except ValueError:
+            return default
+
+    @staticmethod
+    def _novelai_error_detail(exc: Exception) -> str:
+        code = getattr(exc, "code", None)
+        response = getattr(exc, "response", None)
+        message = str(exc).strip() or type(exc).__name__
+        if code and response:
+            return f"HTTP {code} {str(response)[:240]}"
+        if code:
+            return f"HTTP {code} {message[:240]}"
+        return f"{type(exc).__name__}: {message[:240]}"
 
     async def _novelai_prompt(self, prompt: str) -> str:
         prompt = prompt.strip()
