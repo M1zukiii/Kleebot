@@ -2,6 +2,7 @@ import base64
 import io
 import os
 import random
+import re
 import zipfile
 from pathlib import Path
 from urllib.parse import urlparse
@@ -40,6 +41,13 @@ class KleeAI:
             "NOVELAI_NEGATIVE_PROMPT",
             "lowres, bad anatomy, bad hands, text, error, missing fingers, extra digit, fewer digits, cropped, worst quality, low quality, normal quality, jpeg artifacts, signature, watermark, username, blurry",
         )
+        self.novelai_plain_prompt = os.getenv("NOVELAI_PLAIN_PROMPT", "true").strip().lower() in {
+            "1",
+            "true",
+            "yes",
+            "on",
+        }
+        self.novelai_prompt_model = os.getenv("NOVELAI_PROMPT_MODEL", self.model)
         self.prompt_file = Path(os.getenv("KLEE_PROMPT_FILE", str(DEFAULT_PROMPT_FILE)))
         self._client = None
 
@@ -141,9 +149,9 @@ class KleeAI:
             return FALLBACK_REPLY
         return text[:1800]
 
-    async def generate_image(self, *, prompt: str) -> bytes:
+    async def generate_image(self, *, prompt: str, plain_language: bool = True) -> bytes:
         if self.image_provider == "novelai":
-            return await self._generate_novelai_image(prompt=prompt)
+            return await self._generate_novelai_image(prompt=prompt, plain_language=plain_language)
         if self.image_provider != "openai":
             raise RuntimeError("IMAGE_PROVIDER must be openai or novelai.")
         if not self.enabled:
@@ -171,9 +179,11 @@ class KleeAI:
 
         raise RuntimeError("Image generation did not return image bytes.")
 
-    async def _generate_novelai_image(self, *, prompt: str) -> bytes:
+    async def _generate_novelai_image(self, *, prompt: str, plain_language: bool) -> bytes:
         if not self.novelai_token:
             raise RuntimeError("NOVELAI_TOKEN is missing.")
+        if plain_language:
+            prompt = await self._novelai_prompt(prompt)
         payload = {
             "input": prompt,
             "model": self.novelai_model,
@@ -222,3 +232,38 @@ class KleeAI:
                 if name.lower().endswith((".png", ".jpg", ".jpeg", ".webp")):
                     return archive.read(name)
         raise RuntimeError("NovelAI returned no image file.")
+
+    async def _novelai_prompt(self, prompt: str) -> str:
+        prompt = prompt.strip()
+        if not self.novelai_plain_prompt or not self.enabled or self._looks_like_tag_prompt(prompt):
+            return prompt
+        instructions = (
+            "Convert the user's plain-language image request into a concise NovelAI Diffusion V4.5 Full prompt. "
+            "Write only the final English prompt, no explanation. "
+            "Prefer comma-separated anime illustration tags plus short natural-language details. "
+            "Preserve named characters, outfits, pose, mood, background, camera angle, and style. "
+            "If the user writes Chinese, translate naturally into English. "
+            "Do not add sexual content, gore, hate, or real-person impersonation."
+        )
+        try:
+            response = await self._get_client().responses.create(
+                model=self.novelai_prompt_model,
+                instructions=instructions,
+                input=prompt[:4000],
+                max_output_tokens=220,
+            )
+            rewritten = (response.output_text or "").strip()
+        except Exception as exc:
+            print(f"novelai prompt rewrite failed: {type(exc).__name__}: {exc}", flush=True)
+            return prompt
+        if not rewritten:
+            return prompt
+        return rewritten[:1800]
+
+    @staticmethod
+    def _looks_like_tag_prompt(prompt: str) -> bool:
+        if re.search(r"[\u3400-\u9fff]", prompt):
+            return False
+        comma_count = prompt.count(",")
+        word_count = len(prompt.split())
+        return comma_count >= 3 and comma_count >= max(2, word_count // 5)

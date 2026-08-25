@@ -82,7 +82,7 @@ LEADERBOARD_CHOICES = [
 KLEE_CONTEXT_CHARS = int(os.getenv("KLEE_CONTEXT_CHARS", "900"))
 KLEE_VIDEO_METADATA_LIMIT = int(os.getenv("KLEE_VIDEO_METADATA_LIMIT", "2"))
 KLEE_VISION_DAILY_LIMIT = int(os.getenv("KLEE_VISION_DAILY_LIMIT", "3"))
-KLEE_IMAGE_DAILY_LIMIT = int(os.getenv("KLEE_IMAGE_DAILY_LIMIT", "1"))
+KLEE_IMAGE_DAILY_LIMIT = int(os.getenv("KLEE_IMAGE_DAILY_LIMIT", "0"))
 PLAYLIST_LIMIT = int(os.getenv("PLAYLIST_LIMIT", "50"))
 VISION_LIMIT_MESSAGE = "荣誉骑士今天让 Klee 看太多图片啦，Klee 的眼睛要变成蹦蹦炸弹了... 明天再来吧！"
 IMAGE_LIMIT_MESSAGE = "荣誉骑士今天已经让 Klee 画过图啦，画笔要休息到明天哦~"
@@ -584,31 +584,46 @@ async def handle_bomb(interaction: discord.Interaction, target: discord.abc.User
     await respond(interaction, f"{bomb_text(target)}\n剩余炸弹：{bombs_left}")
 
 
-async def handle_imagine(interaction: discord.Interaction, prompt: str) -> None:
+def parse_image_prompt_mode(prompt: str) -> tuple[str, bool]:
+    prompt = prompt.strip()
+    lowered = prompt.lower()
+    for prefix in ("--tags ", "--tag ", "--prompt ", "--raw ", "--原始 ", "--标签 "):
+        if lowered.startswith(prefix):
+            return prompt[len(prefix):].strip(), False
+    for prefix in ("--plain ", "--自然语言 ", "--大白话 "):
+        if lowered.startswith(prefix):
+            return prompt[len(prefix):].strip(), True
+    return prompt, True
+
+
+async def handle_imagine(interaction: discord.Interaction, prompt: str, mode: str = "plain") -> None:
     if not await defer(interaction):
         return
     prompt = prompt.strip()
+    plain_language = mode != "tags"
     print(f"imagine requested in {interaction.guild.id if interaction.guild else 'dm'}", flush=True)
     if not prompt:
-        await respond(interaction, "Tell Klee what to draw.")
+        await respond(interaction, "告诉 Klee 你想画什么就好啦。")
         return
-    allowed, _ = ai_usage.try_use(
-        interaction.guild.id if interaction.guild else None,
-        interaction.user.id,
-        "image",
-        KLEE_IMAGE_DAILY_LIMIT,
-    )
-    if not allowed:
-        await respond(interaction, IMAGE_LIMIT_MESSAGE)
-        return
-    try:
-        image = await klee_ai.generate_image(prompt=prompt[:32000])
-    except Exception as exc:
-        ai_usage.refund(
+    if KLEE_IMAGE_DAILY_LIMIT > 0:
+        allowed, _ = ai_usage.try_use(
             interaction.guild.id if interaction.guild else None,
             interaction.user.id,
             "image",
+            KLEE_IMAGE_DAILY_LIMIT,
         )
+        if not allowed:
+            await respond(interaction, IMAGE_LIMIT_MESSAGE)
+            return
+    try:
+        image = await klee_ai.generate_image(prompt=prompt[:32000], plain_language=plain_language)
+    except Exception as exc:
+        if KLEE_IMAGE_DAILY_LIMIT > 0:
+            ai_usage.refund(
+                interaction.guild.id if interaction.guild else None,
+                interaction.user.id,
+                "image",
+            )
         print(f"image generation failed: {exc}", flush=True)
         await respond(interaction, f"Klee 画不出来这个... {exc}")
         return
@@ -853,16 +868,30 @@ async def slash_bomb_cn(interaction: discord.Interaction, target: discord.Member
     await handle_bomb(interaction, target)
 
 
-@bot.tree.command(name="imagine", description="Generate an image from a prompt.")
-@app_commands.describe(prompt="What Klee should draw")
-async def slash_imagine(interaction: discord.Interaction, prompt: str) -> None:
-    await handle_imagine(interaction, prompt)
+@bot.tree.command(name="imagine", description="Ask Klee to draw an image.")
+@app_commands.describe(prompt="Describe what you want Klee to draw")
+@app_commands.describe(mode="Plain language or raw image tags")
+@app_commands.choices(
+    mode=[
+        app_commands.Choice(name="Plain language", value="plain"),
+        app_commands.Choice(name="Raw prompt/tags", value="tags"),
+    ]
+)
+async def slash_imagine(interaction: discord.Interaction, prompt: str, mode: str = "plain") -> None:
+    await handle_imagine(interaction, prompt, mode)
 
 
 @bot.tree.command(name="生图", description="让 Klee 根据描述生成图片。")
 @app_commands.describe(prompt="想让 Klee 画什么")
-async def slash_imagine_cn(interaction: discord.Interaction, prompt: str) -> None:
-    await handle_imagine(interaction, prompt)
+@app_commands.describe(mode="大白话，还是自己写好的提示词")
+@app_commands.choices(
+    mode=[
+        app_commands.Choice(name="大白话", value="plain"),
+        app_commands.Choice(name="提示词/标签", value="tags"),
+    ]
+)
+async def slash_imagine_cn(interaction: discord.Interaction, prompt: str, mode: str = "plain") -> None:
+    await handle_imagine(interaction, prompt, mode)
 
 
 @bot.tree.command(name="help", description="Show Kleebot command help.")
@@ -1074,14 +1103,17 @@ async def prefix_bomb(ctx: commands.Context, target: discord.Member) -> None:
 @bot.command(name="imagine", aliases=["生图", "画图"])
 async def prefix_imagine(ctx: commands.Context, *, prompt: str) -> None:
     message = await ctx.send("Klee 正在画图...")
-    allowed, _ = ai_usage.try_use(ctx.guild.id if ctx.guild else None, ctx.author.id, "image", KLEE_IMAGE_DAILY_LIMIT)
-    if not allowed:
-        await message.edit(content=IMAGE_LIMIT_MESSAGE)
-        return
+    prompt, plain_language = parse_image_prompt_mode(prompt)
+    if KLEE_IMAGE_DAILY_LIMIT > 0:
+        allowed, _ = ai_usage.try_use(ctx.guild.id if ctx.guild else None, ctx.author.id, "image", KLEE_IMAGE_DAILY_LIMIT)
+        if not allowed:
+            await message.edit(content=IMAGE_LIMIT_MESSAGE)
+            return
     try:
-        image = await klee_ai.generate_image(prompt=prompt.strip()[:32000])
+        image = await klee_ai.generate_image(prompt=prompt.strip()[:32000], plain_language=plain_language)
     except Exception as exc:
-        ai_usage.refund(ctx.guild.id if ctx.guild else None, ctx.author.id, "image")
+        if KLEE_IMAGE_DAILY_LIMIT > 0:
+            ai_usage.refund(ctx.guild.id if ctx.guild else None, ctx.author.id, "image")
         print(f"image generation failed: {exc}", flush=True)
         await message.edit(content=f"Klee 画不出来这个... {exc}")
         return

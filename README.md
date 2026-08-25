@@ -16,7 +16,8 @@ Self-hosted Discord music bot for YouTube, Bilibili, NicoNico, and Spotify track
 - Spotify track links are resolved to song metadata, then played from a YouTube search result.
 - Mention replies can use OpenAI GPT Luna with a Klee persona, including image attachments and lightweight YouTube/Bilibili/NicoNico video metadata.
 - Image generation with `/imagine`, `/生图`, `!imagine`, or `!生图`; choose OpenAI or NovelAI V4.5 Full with `IMAGE_PROVIDER`.
-- Daily AI cost limits: 3 image-recognition mentions and 1 image generation per user.
+- NovelAI image prompts support two modes: plain-language descriptions or raw prompt/tags.
+- Daily AI cost limits: 3 image-recognition mentions. Image generation is unlimited when `KLEE_IMAGE_DAILY_LIMIT=0`.
 - Optional cookies file for sites that require login.
 
 ## Setup
@@ -68,7 +69,7 @@ docker compose logs -f kleebot
 - `/afk reason` / `/离开状态 reason` - 设置 AFK 状态，别人 @ 你时 Kleebot 会提醒。
 - `/leaderboard category` / `/排行榜 category` - 查看排行榜：`plays`, `fortunes`, `luck`, `bombed`。
 - `/bomb target` / `/炸弹 target` - 消耗 1 个炸弹，让 Klee 炸一个目标。
-- `/imagine prompt` / `/生图 prompt` - 根据描述生成图片。
+- `/imagine prompt mode` / `/生图 prompt mode` - 根据描述生成图片。`mode` 选“大白话”会自动整理，选“提示词/标签”会原样发送。
 - `/help` - 查看 Kleebot 的指令说明。
 - `/帮助` - `/help` 的中文版本。
 - `/fortune` - 抽取今日幸运签，并领取 3 个炸弹。
@@ -81,6 +82,8 @@ Prefix examples:
 !play https://open.spotify.com/track/...
 !play sm9
 !play never gonna give you up
+!生图 一个在璃月港看烟花的 Klee，开心地抱着嘟嘟可
+!生图 --tags 1girl, blonde hair, red coat, fireworks, liyue harbor, anime illustration
 !求签
 !queue
 !skip
