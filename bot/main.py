@@ -237,10 +237,10 @@ async def respond_embed(
         print("embed response skipped: interaction is no longer available", flush=True)
 
 
-async def defer(interaction: discord.Interaction) -> bool:
+async def defer(interaction: discord.Interaction, ephemeral: bool = False) -> bool:
     if not interaction.response.is_done():
         try:
-            await interaction.response.defer(thinking=True)
+            await interaction.response.defer(thinking=True, ephemeral=ephemeral)
         except discord.NotFound:
             print("defer skipped: interaction is no longer available", flush=True)
             return False
@@ -634,6 +634,12 @@ async def handle_imagine(interaction: discord.Interaction, prompt: str, mode: st
         print("image response skipped: interaction is no longer available", flush=True)
 
 
+async def handle_nai_usage(interaction: discord.Interaction) -> None:
+    await defer(interaction, ephemeral=True)
+    print(f"naiusage requested in {interaction.guild.id if interaction.guild else 'dm'}", flush=True)
+    await respond(interaction, await klee_ai.novelai_usage_text(), ephemeral=True)
+
+
 def bomb_text(target: discord.abc.User) -> str:
     emote = bot.get_emoji(KLEE_REEE_EMOTE_ID)
     if emote is None:
@@ -894,6 +900,16 @@ async def slash_imagine_cn(interaction: discord.Interaction, prompt: str, mode: 
     await handle_imagine(interaction, prompt, mode)
 
 
+@bot.tree.command(name="naiusage", description="Check NovelAI model, Anlas, and usage settings.")
+async def slash_naiusage(interaction: discord.Interaction) -> None:
+    await handle_nai_usage(interaction)
+
+
+@bot.tree.command(name="额度", description="查看 NovelAI 生图额度和设置。")
+async def slash_naiusage_cn(interaction: discord.Interaction) -> None:
+    await handle_nai_usage(interaction)
+
+
 @bot.tree.command(name="help", description="Show Kleebot command help.")
 async def slash_help(interaction: discord.Interaction) -> None:
     await respond_help(interaction)
@@ -1119,6 +1135,11 @@ async def prefix_imagine(ctx: commands.Context, *, prompt: str) -> None:
         return
     await message.delete()
     await ctx.send(f"{ctx.author.mention} Klee 画好啦！", file=discord.File(BytesIO(image), filename="klee-image.png"))
+
+
+@bot.command(name="naiusage", aliases=["额度", "nai额度"])
+async def prefix_naiusage(ctx: commands.Context) -> None:
+    await ctx.send(await klee_ai.novelai_usage_text())
 
 
 @bot.command(name="help")

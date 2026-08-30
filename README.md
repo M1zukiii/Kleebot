@@ -16,8 +16,9 @@ Self-hosted Discord music bot for YouTube, Bilibili, NicoNico, and Spotify track
 - YouTube/Bilibili audio is downloaded to a local cache before playback by default, which avoids FFmpeg 403 errors from expiring stream URLs. Set `YTDLP_DOWNLOAD_STREAMS=false` to stream directly.
 - Spotify track links are resolved to song metadata, then played from a YouTube search result.
 - Mention replies can use OpenAI GPT Luna with a Klee persona, including image attachments and lightweight YouTube/Bilibili/NicoNico video metadata.
-- Image generation with `/imagine`, `/生图`, `!imagine`, or `!生图`; choose OpenAI or NovelAI V4.5 Full with `IMAGE_PROVIDER`.
+- Image generation with `/imagine`, `/生图`, `!imagine`, or `!生图`; choose OpenAI or NovelAI V5 Full with `IMAGE_PROVIDER`.
 - NovelAI image prompts support two modes: plain-language descriptions or raw prompt/tags.
+- NovelAI defaults to `nai-diffusion-5-full` with `NOVELAI_AVOID_ANLAS=true`, which keeps generations at 1024x1024 or lower and 28 steps or lower.
 - Daily AI cost limits: 3 image-recognition mentions. Image generation is unlimited when `KLEE_IMAGE_DAILY_LIMIT=0`.
 - Optional cookies file for sites that require login.
 
@@ -28,7 +29,7 @@ Self-hosted Discord music bot for YouTube, Bilibili, NicoNico, and Spotify track
 3. Optional: set `GUILD_ID` to your Discord server ID for faster slash-command syncing while testing.
 4. Optional: set `OPENAI_API_KEY` and `OPENAI_MODEL=gpt-5.6-luna` to enable Klee-style AI replies when the bot is mentioned. Edit `klee_prompt.txt` to customize the persona. Use `KLEE_CONTEXT_MESSAGES` and `KLEE_CONTEXT_CHARS` to limit recent @Klee context.
 5. Spotify track/album/playlist links use public Spotify page metadata by default. Optional: set `SPOTIFY_USE_API=true`, `SPOTIFY_CLIENT_ID`, and `SPOTIFY_CLIENT_SECRET` only if you want Spotify API fallback.
-6. Optional: set `IMAGE_PROVIDER=novelai` and `NOVELAI_TOKEN` to use NovelAI image generation. The default NovelAI model is `nai-diffusion-4-5-full`.
+6. Optional: set `IMAGE_PROVIDER=novelai` and `NOVELAI_TOKEN` to use NovelAI image generation. The default NovelAI model is `nai-diffusion-5-full`; keep `NOVELAI_AVOID_ANLAS=true` to stay within the normal-size, 28-step settings that Opus can use without Anlas when V5 usage allowance is available.
 7. Optional: keep `YTDLP_DOWNLOAD_STREAMS=true` for more reliable YouTube/Bilibili playback. Cached files are removed after playback.
 8. Start the bot:
 
@@ -72,6 +73,7 @@ docker compose logs -f kleebot
 - `/leaderboard category` / `/排行榜 category` - 查看排行榜：`plays`, `fortunes`, `luck`, `bombed`。
 - `/bomb target` / `/炸弹 target` - 消耗 1 个炸弹，让 Klee 炸一个目标。
 - `/imagine prompt mode` / `/生图 prompt mode` - 根据描述生成图片。`mode` 选“大白话”会自动整理，选“提示词/标签”会原样发送。
+- `/naiusage` / `/额度` - 查看 NovelAI 模型、Anlas 和省 Anlas 设置。
 - `/help` - 查看 Kleebot 的指令说明。
 - `/帮助` - `/help` 的中文版本。
 - `/fortune` - 抽取今日幸运签，并领取 3 个炸弹。

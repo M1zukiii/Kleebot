@@ -5,6 +5,8 @@ import re
 from pathlib import Path
 from urllib.parse import urlparse
 
+import httpx
+
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 DEFAULT_PROMPT_FILE = BASE_DIR / "klee_prompt.txt"
@@ -27,12 +29,18 @@ class KleeAI:
         self.base_url = self._clean_base_url(os.getenv("OPENAI_BASE_URL"))
         self.image_provider = os.getenv("IMAGE_PROVIDER", "openai").strip().lower()
         self.novelai_token = os.getenv("NOVELAI_TOKEN")
-        self.novelai_model = os.getenv("NOVELAI_MODEL", "nai-diffusion-4-5-full")
+        self.novelai_model = os.getenv("NOVELAI_MODEL", "nai-diffusion-5-full")
         self.novelai_width = int(os.getenv("NOVELAI_WIDTH", "1024"))
         self.novelai_height = int(os.getenv("NOVELAI_HEIGHT", "1024"))
         self.novelai_steps = int(os.getenv("NOVELAI_STEPS", "28"))
         self.novelai_scale = float(os.getenv("NOVELAI_SCALE", "6.0"))
         self.novelai_sampler = os.getenv("NOVELAI_SAMPLER", "k_euler_ancestral")
+        self.novelai_avoid_anlas = os.getenv("NOVELAI_AVOID_ANLAS", "true").strip().lower() in {
+            "1",
+            "true",
+            "yes",
+            "on",
+        }
         self.novelai_negative_prompt = os.getenv(
             "NOVELAI_NEGATIVE_PROMPT",
             "lowres, bad anatomy, bad hands, text, error, missing fingers, extra digit, fewer digits, cropped, worst quality, low quality, normal quality, jpeg artifacts, signature, watermark, username, blurry",
@@ -73,7 +81,8 @@ class KleeAI:
         novelai = "set" if self.novelai_token else "missing"
         return (
             f"ai key={key} model={self.model} base_url={base} timeout={self.timeout:g} "
-            f"image_provider={self.image_provider} novelai_token={novelai}"
+            f"image_provider={self.image_provider} novelai_model={self.novelai_model} "
+            f"novelai_token={novelai} avoid_anlas={self.novelai_avoid_anlas}"
         )
 
     def _get_client(self):
@@ -190,21 +199,26 @@ class KleeAI:
 
         logger.disable("novelai_python")
         sampler = self._novelai_enum_value(Sampler, self.novelai_sampler, Sampler.K_EULER_ANCESTRAL)
+        width, height, steps = self._novelai_generation_settings()
+        builder_model = self._novelai_builder_model()
         request = GenerateImageInfer.build_generate(
             prompt=prompt,
-            model=self.novelai_model,
+            model=builder_model,
             negative_prompt=self.novelai_negative_prompt,
             ucPreset=UCPreset.TYPE0,
-            steps=self.novelai_steps,
+            steps=steps,
             sampler=sampler,
-            width=self.novelai_width,
-            height=self.novelai_height,
+            width=width,
+            height=height,
             seed=random.randint(1, 4294967295 - 7),
             qualityToggle=True,
             decrisp_mode=False,
             variety_boost=True,
             furry_mode=False,
         )
+        request.parameters.scale = self.novelai_scale
+        if builder_model != self.novelai_model:
+            request.model = self.novelai_model
         session = ApiCredential(api_token=SecretStr(self.novelai_token.strip()))
         try:
             response = await request.request(session=session)
@@ -214,6 +228,69 @@ class KleeAI:
         if not response.files:
             raise RuntimeError("NovelAI returned no image file.")
         return response.files[0][1]
+
+    async def novelai_usage_text(self) -> str:
+        if not self.novelai_token:
+            return "NOVELAI_TOKEN 还没设置。"
+        try:
+            payload = await self._novelai_get_json("https://api.novelai.net/user/subscription")
+        except Exception as exc:
+            return (
+                "Klee 现在查不到 NovelAI 额度，可能是 NovelAI 的订阅接口不接受这个 API token。\n"
+                f"当前设置：model={self.novelai_model}, size={self.novelai_width}x{self.novelai_height}, "
+                f"steps={self.novelai_steps}, avoid_anlas={self.novelai_avoid_anlas}\n"
+                f"查询失败：{type(exc).__name__}: {str(exc)[:160]}"
+            )
+
+        tier_names = {0: "Paper", 1: "Tablet", 2: "Scroll", 3: "Opus"}
+        tier = payload.get("tier")
+        training = payload.get("trainingStepsLeft") or {}
+        anlas_left = int(training.get("fixedTrainingStepsLeft") or 0) + int(training.get("purchasedTrainingSteps") or 0)
+        perks = payload.get("perks") or {}
+        lines = [
+            f"NovelAI: {tier_names.get(tier, 'Unknown')}，active={payload.get('active')}",
+            f"Anlas: {anlas_left}",
+            f"Unlimited image: {bool(perks.get('unlimitedImageGeneration'))}",
+            f"当前模型: {self.novelai_model}",
+            f"当前设置: {self.novelai_width}x{self.novelai_height}, steps={self.novelai_steps}, avoid_anlas={self.novelai_avoid_anlas}",
+        ]
+        if self.novelai_avoid_anlas:
+            width, height, steps = self._novelai_generation_settings()
+            lines.append(f"实际保护设置: {width}x{height}, steps={steps}, single image")
+            lines.append("V5 在 Opus 且普通尺寸/28 steps 内会优先走 V5 usage limit；如果额度耗尽，NovelAI 可能改扣 Anlas。")
+        return "\n".join(lines)
+
+    async def _novelai_get_json(self, url: str) -> dict:
+        headers = {"Authorization": f"Bearer {self.novelai_token.strip()}"}
+        async with httpx.AsyncClient(timeout=min(self.image_timeout, 30)) as client:
+            response = await client.get(url, headers=headers)
+        if response.status_code >= 400:
+            detail = response.text.strip().replace("\n", " ")[:240]
+            raise RuntimeError(f"HTTP {response.status_code} {detail}")
+        payload = response.json()
+        if not isinstance(payload, dict):
+            raise RuntimeError("NovelAI returned an unexpected response.")
+        return payload
+
+    def _novelai_generation_settings(self) -> tuple[int, int, int]:
+        width = self._multiple_of_64(self.novelai_width)
+        height = self._multiple_of_64(self.novelai_height)
+        steps = self.novelai_steps
+        if self.novelai_avoid_anlas:
+            width = min(width, 1024)
+            height = min(height, 1024)
+            steps = min(steps, 28)
+        return width, height, steps
+
+    def _novelai_builder_model(self) -> str:
+        model = self.novelai_model.strip()
+        if model in {"nai-diffusion-5-full", "nai-diffusion-5-curated"}:
+            return "nai-diffusion-4-5-full" if model.endswith("-full") else "nai-diffusion-4-5-curated"
+        return model
+
+    @staticmethod
+    def _multiple_of_64(value: int) -> int:
+        return max(64, min(49152, (int(value) // 64) * 64))
 
     @staticmethod
     def _novelai_enum_value(enum_type, value: str, default):
@@ -238,7 +315,7 @@ class KleeAI:
         if not self.novelai_plain_prompt or not self.enabled or self._looks_like_tag_prompt(prompt):
             return prompt
         instructions = (
-            "Convert the user's plain-language image request into a concise NovelAI Diffusion V4.5 Full prompt. "
+            "Convert the user's plain-language image request into a concise NovelAI Diffusion V5 Full prompt. "
             "Write only the final English prompt, no explanation. "
             "Prefer comma-separated anime illustration tags plus short natural-language details. "
             "Preserve named characters, outfits, pose, mood, background, camera angle, and style. "
