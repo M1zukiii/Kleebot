@@ -67,6 +67,13 @@ class SpotifyTrackMeta:
 class Resolver:
     def __init__(self) -> None:
         self.cookies = os.getenv("YTDLP_COOKIES", "/app/data/cookies.txt")
+        self.cache_dir = Path(os.getenv("YTDLP_CACHE_DIR", "/app/data/cache"))
+        self.download_streams = os.getenv("YTDLP_DOWNLOAD_STREAMS", "true").lower() in {
+            "1",
+            "true",
+            "yes",
+            "on",
+        }
         self.spotify_client_id = os.getenv("SPOTIFY_CLIENT_ID")
         self.spotify_client_secret = os.getenv("SPOTIFY_CLIENT_SECRET")
         self.spotify_use_api = os.getenv("SPOTIFY_USE_API", "").lower() in {"1", "true", "yes", "on"}
@@ -161,6 +168,9 @@ class Resolver:
         if not stream_url:
             raise RuntimeError("yt-dlp did not return an audio stream URL.")
 
+        if self._should_download_before_playback(data):
+            return self._download_media_sync(target, original_query, requester, options)
+
         return Track(
             title=data.get("title") or "Untitled",
             webpage_url=data.get("webpage_url") or original_query,
@@ -223,6 +233,47 @@ class Resolver:
         if not tracks:
             raise RuntimeError("No playable playlist entries found.")
         return tracks
+
+    def _download_media_sync(
+        self,
+        target: str,
+        original_query: str,
+        requester: str,
+        options: dict[str, Any],
+    ) -> Track:
+        self.cache_dir.mkdir(parents=True, exist_ok=True)
+        download_options = {
+            **options,
+            "outtmpl": str(self.cache_dir / f"track-{uuid.uuid4().hex}.%(ext)s"),
+            "noplaylist": True,
+            "quiet": True,
+            "no_warnings": True,
+        }
+
+        with yt_dlp.YoutubeDL(download_options) as ydl:
+            data = ydl.extract_info(target, download=True)
+
+        if data is None:
+            raise RuntimeError("No result found.")
+        if "entries" in data:
+            entries = [entry for entry in data["entries"] if entry]
+            if not entries:
+                raise RuntimeError("No playable entries found.")
+            data = entries[0]
+
+        local_path = self._downloaded_filepath(data)
+        if not local_path or not os.path.exists(local_path):
+            raise RuntimeError("Downloaded audio file was not found.")
+
+        return Track(
+            title=data.get("title") or "Untitled",
+            webpage_url=data.get("webpage_url") or original_query,
+            stream_url=local_path,
+            duration=data.get("duration"),
+            requester=requester,
+            http_headers={},
+            local_path=local_path,
+        )
 
     def _resolve_spotify_collection_sync(self, url: str, requester: str, limit: int) -> list[Track]:
         parsed = urlparse(url)
@@ -358,11 +409,10 @@ class Resolver:
         requester: str,
         options: dict[str, Any],
     ) -> Track:
-        cache_dir = Path("/app/data/cache")
-        cache_dir.mkdir(parents=True, exist_ok=True)
+        self.cache_dir.mkdir(parents=True, exist_ok=True)
         download_options = {
             **options,
-            "outtmpl": str(cache_dir / f"niconico-{uuid.uuid4().hex}.%(ext)s"),
+            "outtmpl": str(self.cache_dir / f"niconico-{uuid.uuid4().hex}.%(ext)s"),
             "quiet": True,
             "no_warnings": True,
         }
@@ -647,6 +697,18 @@ class Resolver:
                     if "nicovideo.jp" in domain or "nico.ms" in domain:
                         cookies.append(f"{name}={value}")
         return "; ".join(cookies) or None
+
+    def _should_download_before_playback(self, data: dict[str, Any]) -> bool:
+        if not self.download_streams:
+            return False
+        extractor = str(data.get("extractor_key") or data.get("extractor") or "").lower()
+        webpage_url = str(data.get("webpage_url") or data.get("original_url") or "")
+        parsed = urlparse(webpage_url) if self._looks_like_url(webpage_url) else None
+        host = parsed.netloc.lower() if parsed else ""
+        return any(
+            source in extractor or source in host
+            for source in ("youtube", "youtu.be", "bilibili")
+        )
 
     @staticmethod
     def _is_spotify_track_url(value: str) -> bool:
