@@ -54,7 +54,7 @@ class KleeAI:
         }
         self.novelai_negative_prompt = os.getenv(
             "NOVELAI_NEGATIVE_PROMPT",
-            "lowres, bad anatomy, bad hands, text, error, missing fingers, extra digit, fewer digits, cropped, worst quality, low quality, normal quality, jpeg artifacts, signature, watermark, username, blurry",
+            "lowres, artistic error, film grain, scan artifacts, worst quality, bad quality, jpeg artifacts, very displeasing, chromatic aberration, dithering, halftone, screentone, multiple views, logo, too many watermarks, negative space, blank page, @_@, mismatched pupils, glowing eyes, bad anatomy",
         )
         self.novelai_plain_prompt = os.getenv("NOVELAI_PLAIN_PROMPT", "true").strip().lower() in {
             "1",
