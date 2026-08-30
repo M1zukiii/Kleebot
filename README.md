@@ -18,7 +18,7 @@ Self-hosted Discord music bot for YouTube, Bilibili, NicoNico, and Spotify track
 - Mention replies can use OpenAI GPT Luna with a Klee persona, including image attachments and lightweight YouTube/Bilibili/NicoNico video metadata.
 - Image generation with `/imagine`, `/生图`, `!imagine`, or `!生图`; choose OpenAI or NovelAI V5 Full with `IMAGE_PROVIDER`.
 - NovelAI image prompts support two modes: plain-language descriptions or raw prompt/tags.
-- NovelAI defaults to `nai-diffusion-5-full` with `NOVELAI_AVOID_ANLAS=true`, which keeps generations at 1024x1024 or lower and 28 steps or lower.
+- NovelAI defaults to `nai-diffusion-5-full` with `NOVELAI_AVOID_ANLAS=true`, and supports square, portrait, and landscape normal-size presets.
 - Daily AI cost limits: 3 image-recognition mentions. Image generation is unlimited when `KLEE_IMAGE_DAILY_LIMIT=0`.
 - Optional cookies file for sites that require login.
 
@@ -72,7 +72,8 @@ docker compose logs -f kleebot
 - `/afk reason` / `/离开状态 reason` - 设置 AFK 状态，别人 @ 你时 Kleebot 会提醒。
 - `/leaderboard category` / `/排行榜 category` - 查看排行榜：`plays`, `fortunes`, `luck`, `bombed`。
 - `/bomb target` / `/炸弹 target` - 消耗 1 个炸弹，让 Klee 炸一个目标。
-- `/imagine prompt mode` / `/生图 prompt mode` - 根据描述生成图片。`mode` 选“大白话”会自动整理，选“提示词/标签”会原样发送。
+- `/imagine prompt mode aspect` / `/生图 prompt mode aspect` - 根据描述生成图片。`aspect` 可选方图、竖图、横图；`mode` 选“大白话”会自动整理，选“提示词/标签”会原样发送。
+- `/promptgen prompt aspect` / `/提示词 prompt aspect` - 只把大白话整理成 NovelAI 提示词，不生图。
 - `/naiusage` / `/额度` - 查看 NovelAI 模型、Anlas 和省 Anlas 设置。
 - `/help` - 查看 Kleebot 的指令说明。
 - `/帮助` - `/help` 的中文版本。
@@ -87,7 +88,9 @@ Prefix examples:
 !play sm9
 !play never gonna give you up
 !生图 一个在璃月港看烟花的 Klee，开心地抱着嘟嘟可
-!生图 --tags 1girl, blonde hair, red coat, fireworks, liyue harbor, anime illustration
+!生图 --竖图 一个在璃月港看烟花的 Klee，开心地抱着嘟嘟可
+!生图 --横图 --tags 1girl, blonde hair, red coat, fireworks, liyue harbor, anime illustration
+!提示词 --竖图 一个在璃月港看烟花的 Klee，开心地抱着嘟嘟可
 !求签
 !queue
 !skip

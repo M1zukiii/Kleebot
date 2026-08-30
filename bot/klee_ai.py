@@ -17,6 +17,17 @@ KLEE_SYSTEM_PROMPT = """你是 Discord 机器人 Kleebot。回复时以 Klee 的
 
 FALLBACK_REPLY = "西风骑士团，「火花骑士」，Klee，前来报到！…呃—后面该说什么词来着？Klee背不下来啦..."
 
+NOVELAI_ASPECT_SIZES = {
+    "square": (1024, 1024),
+    "portrait": (832, 1216),
+    "landscape": (1216, 832),
+}
+OPENAI_IMAGE_SIZES = {
+    "square": "1024x1024",
+    "portrait": "1024x1536",
+    "landscape": "1536x1024",
+}
+
 
 class KleeAI:
     def __init__(self) -> None:
@@ -154,17 +165,18 @@ class KleeAI:
             return FALLBACK_REPLY
         return text[:1800]
 
-    async def generate_image(self, *, prompt: str, plain_language: bool = True) -> bytes:
+    async def generate_image(self, *, prompt: str, plain_language: bool = True, aspect: str | None = None) -> bytes:
         if self.image_provider == "novelai":
-            return await self._generate_novelai_image(prompt=prompt, plain_language=plain_language)
+            return await self._generate_novelai_image(prompt=prompt, plain_language=plain_language, aspect=aspect)
         if self.image_provider != "openai":
             raise RuntimeError("IMAGE_PROVIDER must be openai or novelai.")
         if not self.enabled:
             raise RuntimeError("OPENAI_API_KEY is missing.")
+        image_size = OPENAI_IMAGE_SIZES.get(self._normalize_aspect(aspect), self.image_size)
         response = await self._get_client().with_options(timeout=self.image_timeout).images.generate(
             model=self.image_model,
             prompt=prompt,
-            size=self.image_size,
+            size=image_size,
             n=1,
         )
         if not response.data:
@@ -184,11 +196,16 @@ class KleeAI:
 
         raise RuntimeError("Image generation did not return image bytes.")
 
-    async def _generate_novelai_image(self, *, prompt: str, plain_language: bool) -> bytes:
+    async def novelai_prompt_text(self, *, prompt: str, aspect: str | None = None) -> str:
+        if not prompt.strip():
+            raise RuntimeError("Prompt is empty.")
+        return await self._novelai_prompt(prompt, aspect=aspect)
+
+    async def _generate_novelai_image(self, *, prompt: str, plain_language: bool, aspect: str | None) -> bytes:
         if not self.novelai_token:
             raise RuntimeError("NOVELAI_TOKEN is missing.")
         if plain_language:
-            prompt = await self._novelai_prompt(prompt)
+            prompt = await self._novelai_prompt(prompt, aspect=aspect)
         try:
             from novelai_python import ApiCredential, GenerateImageInfer
             from novelai_python.sdk.ai.generate_image import Sampler, UCPreset
@@ -199,7 +216,7 @@ class KleeAI:
 
         logger.disable("novelai_python")
         sampler = self._novelai_enum_value(Sampler, self.novelai_sampler, Sampler.K_EULER_ANCESTRAL)
-        width, height, steps = self._novelai_generation_settings()
+        width, height, steps = self._novelai_generation_settings(aspect)
         builder_model = self._novelai_builder_model()
         request = GenerateImageInfer.build_generate(
             prompt=prompt,
@@ -272,15 +289,38 @@ class KleeAI:
             raise RuntimeError("NovelAI returned an unexpected response.")
         return payload
 
-    def _novelai_generation_settings(self) -> tuple[int, int, int]:
-        width = self._multiple_of_64(self.novelai_width)
-        height = self._multiple_of_64(self.novelai_height)
+    def _novelai_generation_settings(self, aspect: str | None = None) -> tuple[int, int, int]:
+        aspect_size = NOVELAI_ASPECT_SIZES.get(self._normalize_aspect(aspect))
+        if aspect_size:
+            width, height = aspect_size
+        else:
+            width = self._multiple_of_64(self.novelai_width)
+            height = self._multiple_of_64(self.novelai_height)
         steps = self.novelai_steps
         if self.novelai_avoid_anlas:
-            width = min(width, 1024)
-            height = min(height, 1024)
             steps = min(steps, 28)
         return width, height, steps
+
+    @staticmethod
+    def _normalize_aspect(aspect: str | None) -> str:
+        value = (aspect or "").strip().lower()
+        aliases = {
+            "1:1": "square",
+            "方图": "square",
+            "方": "square",
+            "square": "square",
+            "portrait": "portrait",
+            "vertical": "portrait",
+            "竖图": "portrait",
+            "竖": "portrait",
+            "2:3": "portrait",
+            "landscape": "landscape",
+            "horizontal": "landscape",
+            "横图": "landscape",
+            "横": "landscape",
+            "3:2": "landscape",
+        }
+        return aliases.get(value, value)
 
     def _novelai_builder_model(self) -> str:
         model = self.novelai_model.strip()
@@ -310,17 +350,29 @@ class KleeAI:
             return f"HTTP {code} {message[:240]}"
         return f"{type(exc).__name__}: {message[:240]}"
 
-    async def _novelai_prompt(self, prompt: str) -> str:
+    async def _novelai_prompt(self, prompt: str, aspect: str | None = None) -> str:
         prompt = prompt.strip()
         if not self.novelai_plain_prompt or not self.enabled or self._looks_like_tag_prompt(prompt):
             return prompt
+        aspect_name = self._normalize_aspect(aspect) or "square"
+        aspect_notes = {
+            "square": "Use a balanced square composition with a clear subject and readable background.",
+            "portrait": "Use a vertical portrait composition, full body or upper body framing when appropriate.",
+            "landscape": "Use a wide landscape composition with stronger environment and scene layout.",
+        }
         instructions = (
-            "Convert the user's plain-language image request into a concise NovelAI Diffusion V5 Full prompt. "
-            "Write only the final English prompt, no explanation. "
-            "Prefer comma-separated anime illustration tags plus short natural-language details. "
-            "Preserve named characters, outfits, pose, mood, background, camera angle, and style. "
-            "If the user writes Chinese, translate naturally into English. "
-            "Do not add sexual content, gore, hate, or real-person impersonation."
+            "You are a NovelAI Diffusion V5 Full prompt generator. "
+            "Convert the user's plain-language image request into one strong positive prompt. "
+            "Write only the final prompt, no explanation, no markdown, no labels. "
+            "Use concise English comma-separated anime tags plus short natural-language details where tags are not enough. "
+            "Start with subject count and main subject, then character identity, appearance, outfit, pose, expression, "
+            "camera/framing, lighting, background, mood, and style/quality tags. "
+            "Preserve the user's named characters, outfits, pose, mood, location, composition, and style. "
+            "Do not invent extra characters unless the user asks for them. "
+            "If the user writes Chinese or Japanese, translate naturally into English. "
+            f"Composition rule for {aspect_name}: {aspect_notes.get(aspect_name, aspect_notes['square'])} "
+            "Do not add sexual content, gore, hate, or real-person impersonation. "
+            "Avoid overlong prompts; keep it under 900 characters."
         )
         try:
             response = await self._get_client().responses.create(

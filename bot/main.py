@@ -79,6 +79,11 @@ LEADERBOARD_CHOICES = [
     app_commands.Choice(name="luck", value="luck"),
     app_commands.Choice(name="bombed", value="bombed"),
 ]
+IMAGE_ASPECT_CHOICES = [
+    app_commands.Choice(name="Square 1:1", value="square"),
+    app_commands.Choice(name="Portrait 2:3", value="portrait"),
+    app_commands.Choice(name="Landscape 3:2", value="landscape"),
+]
 KLEE_CONTEXT_CHARS = int(os.getenv("KLEE_CONTEXT_CHARS", "900"))
 KLEE_VIDEO_METADATA_LIMIT = int(os.getenv("KLEE_VIDEO_METADATA_LIMIT", "2"))
 KLEE_VISION_DAILY_LIMIT = int(os.getenv("KLEE_VISION_DAILY_LIMIT", "3"))
@@ -584,24 +589,64 @@ async def handle_bomb(interaction: discord.Interaction, target: discord.abc.User
     await respond(interaction, f"{bomb_text(target)}\n剩余炸弹：{bombs_left}")
 
 
-def parse_image_prompt_mode(prompt: str) -> tuple[str, bool]:
+def parse_image_prompt_mode(prompt: str) -> tuple[str, bool, str]:
     prompt = prompt.strip()
-    lowered = prompt.lower()
-    for prefix in ("--tags ", "--tag ", "--prompt ", "--raw ", "--原始 ", "--标签 "):
-        if lowered.startswith(prefix):
-            return prompt[len(prefix):].strip(), False
-    for prefix in ("--plain ", "--自然语言 ", "--大白话 "):
-        if lowered.startswith(prefix):
-            return prompt[len(prefix):].strip(), True
-    return prompt, True
+    aspect = "square"
+    plain_language = True
+    aspect_prefixes = {
+        "--square ": "square",
+        "--portrait ": "portrait",
+        "--vertical ": "portrait",
+        "--landscape ": "landscape",
+        "--horizontal ": "landscape",
+        "--方图 ": "square",
+        "--竖图 ": "portrait",
+        "--横图 ": "landscape",
+    }
+    mode_prefixes = {
+        "--tags ": False,
+        "--tag ": False,
+        "--prompt ": False,
+        "--raw ": False,
+        "--原始 ": False,
+        "--标签 ": False,
+        "--plain ": True,
+        "--自然语言 ": True,
+        "--大白话 ": True,
+    }
+    while True:
+        lowered = prompt.lower()
+        matched = False
+        for prefix, value in aspect_prefixes.items():
+            if lowered.startswith(prefix):
+                prompt = prompt[len(prefix):].strip()
+                aspect = value
+                matched = True
+                break
+        if matched:
+            continue
+        for prefix, value in mode_prefixes.items():
+            if lowered.startswith(prefix):
+                prompt = prompt[len(prefix):].strip()
+                plain_language = value
+                matched = True
+                break
+        if not matched:
+            break
+    return prompt, plain_language, aspect
 
 
-async def handle_imagine(interaction: discord.Interaction, prompt: str, mode: str = "plain") -> None:
+async def handle_imagine(
+    interaction: discord.Interaction,
+    prompt: str,
+    mode: str = "plain",
+    aspect: str = "square",
+) -> None:
     if not await defer(interaction):
         return
     prompt = prompt.strip()
     plain_language = mode != "tags"
-    print(f"imagine requested in {interaction.guild.id if interaction.guild else 'dm'}", flush=True)
+    print(f"imagine requested in {interaction.guild.id if interaction.guild else 'dm'} aspect={aspect}", flush=True)
     if not prompt:
         await respond(interaction, "告诉 Klee 你想画什么就好啦。")
         return
@@ -616,7 +661,7 @@ async def handle_imagine(interaction: discord.Interaction, prompt: str, mode: st
             await respond(interaction, IMAGE_LIMIT_MESSAGE)
             return
     try:
-        image = await klee_ai.generate_image(prompt=prompt[:32000], plain_language=plain_language)
+        image = await klee_ai.generate_image(prompt=prompt[:32000], plain_language=plain_language, aspect=aspect)
     except Exception as exc:
         if KLEE_IMAGE_DAILY_LIMIT > 0:
             ai_usage.refund(
@@ -638,6 +683,17 @@ async def handle_nai_usage(interaction: discord.Interaction) -> None:
     await defer(interaction, ephemeral=True)
     print(f"naiusage requested in {interaction.guild.id if interaction.guild else 'dm'}", flush=True)
     await respond(interaction, await klee_ai.novelai_usage_text(), ephemeral=True)
+
+
+async def handle_promptgen(interaction: discord.Interaction, prompt: str, aspect: str = "square") -> None:
+    await defer(interaction, ephemeral=True)
+    print(f"promptgen requested in {interaction.guild.id if interaction.guild else 'dm'} aspect={aspect}", flush=True)
+    try:
+        generated = await klee_ai.novelai_prompt_text(prompt=prompt[:4000], aspect=aspect)
+    except Exception as exc:
+        await respond(interaction, f"Klee 整理不出来这个提示词... {exc}", ephemeral=True)
+        return
+    await respond(interaction, f"```text\n{generated[:1800]}\n```", ephemeral=True)
 
 
 def bomb_text(target: discord.abc.User) -> str:
@@ -877,27 +933,35 @@ async def slash_bomb_cn(interaction: discord.Interaction, target: discord.Member
 @bot.tree.command(name="imagine", description="Ask Klee to draw an image.")
 @app_commands.describe(prompt="Describe what you want Klee to draw")
 @app_commands.describe(mode="Plain language or raw image tags")
+@app_commands.describe(aspect="Image aspect ratio")
 @app_commands.choices(
     mode=[
         app_commands.Choice(name="Plain language", value="plain"),
         app_commands.Choice(name="Raw prompt/tags", value="tags"),
-    ]
+    ],
+    aspect=IMAGE_ASPECT_CHOICES,
 )
-async def slash_imagine(interaction: discord.Interaction, prompt: str, mode: str = "plain") -> None:
-    await handle_imagine(interaction, prompt, mode)
+async def slash_imagine(interaction: discord.Interaction, prompt: str, mode: str = "plain", aspect: str = "square") -> None:
+    await handle_imagine(interaction, prompt, mode, aspect)
 
 
 @bot.tree.command(name="生图", description="让 Klee 根据描述生成图片。")
 @app_commands.describe(prompt="想让 Klee 画什么")
 @app_commands.describe(mode="大白话，还是自己写好的提示词")
+@app_commands.describe(aspect="画幅")
 @app_commands.choices(
     mode=[
         app_commands.Choice(name="大白话", value="plain"),
         app_commands.Choice(name="提示词/标签", value="tags"),
-    ]
+    ],
+    aspect=[
+        app_commands.Choice(name="方图 1:1", value="square"),
+        app_commands.Choice(name="竖图 2:3", value="portrait"),
+        app_commands.Choice(name="横图 3:2", value="landscape"),
+    ],
 )
-async def slash_imagine_cn(interaction: discord.Interaction, prompt: str, mode: str = "plain") -> None:
-    await handle_imagine(interaction, prompt, mode)
+async def slash_imagine_cn(interaction: discord.Interaction, prompt: str, mode: str = "plain", aspect: str = "square") -> None:
+    await handle_imagine(interaction, prompt, mode, aspect)
 
 
 @bot.tree.command(name="naiusage", description="Check NovelAI model, Anlas, and usage settings.")
@@ -908,6 +972,28 @@ async def slash_naiusage(interaction: discord.Interaction) -> None:
 @bot.tree.command(name="额度", description="查看 NovelAI 生图额度和设置。")
 async def slash_naiusage_cn(interaction: discord.Interaction) -> None:
     await handle_nai_usage(interaction)
+
+
+@bot.tree.command(name="promptgen", description="Turn plain language into a NovelAI prompt.")
+@app_commands.describe(prompt="Plain-language image description")
+@app_commands.describe(aspect="Image aspect ratio")
+@app_commands.choices(aspect=IMAGE_ASPECT_CHOICES)
+async def slash_promptgen(interaction: discord.Interaction, prompt: str, aspect: str = "square") -> None:
+    await handle_promptgen(interaction, prompt, aspect)
+
+
+@bot.tree.command(name="提示词", description="把大白话整理成 NovelAI 提示词。")
+@app_commands.describe(prompt="大白话图片描述")
+@app_commands.describe(aspect="画幅")
+@app_commands.choices(
+    aspect=[
+        app_commands.Choice(name="方图 1:1", value="square"),
+        app_commands.Choice(name="竖图 2:3", value="portrait"),
+        app_commands.Choice(name="横图 3:2", value="landscape"),
+    ]
+)
+async def slash_promptgen_cn(interaction: discord.Interaction, prompt: str, aspect: str = "square") -> None:
+    await handle_promptgen(interaction, prompt, aspect)
 
 
 @bot.tree.command(name="help", description="Show Kleebot command help.")
@@ -1119,14 +1205,14 @@ async def prefix_bomb(ctx: commands.Context, target: discord.Member) -> None:
 @bot.command(name="imagine", aliases=["生图", "画图"])
 async def prefix_imagine(ctx: commands.Context, *, prompt: str) -> None:
     message = await ctx.send("Klee 正在画图...")
-    prompt, plain_language = parse_image_prompt_mode(prompt)
+    prompt, plain_language, aspect = parse_image_prompt_mode(prompt)
     if KLEE_IMAGE_DAILY_LIMIT > 0:
         allowed, _ = ai_usage.try_use(ctx.guild.id if ctx.guild else None, ctx.author.id, "image", KLEE_IMAGE_DAILY_LIMIT)
         if not allowed:
             await message.edit(content=IMAGE_LIMIT_MESSAGE)
             return
     try:
-        image = await klee_ai.generate_image(prompt=prompt.strip()[:32000], plain_language=plain_language)
+        image = await klee_ai.generate_image(prompt=prompt.strip()[:32000], plain_language=plain_language, aspect=aspect)
     except Exception as exc:
         if KLEE_IMAGE_DAILY_LIMIT > 0:
             ai_usage.refund(ctx.guild.id if ctx.guild else None, ctx.author.id, "image")
@@ -1140,6 +1226,17 @@ async def prefix_imagine(ctx: commands.Context, *, prompt: str) -> None:
 @bot.command(name="naiusage", aliases=["额度", "nai额度"])
 async def prefix_naiusage(ctx: commands.Context) -> None:
     await ctx.send(await klee_ai.novelai_usage_text())
+
+
+@bot.command(name="promptgen", aliases=["提示词"])
+async def prefix_promptgen(ctx: commands.Context, *, prompt: str) -> None:
+    prompt, _, aspect = parse_image_prompt_mode(prompt)
+    try:
+        generated = await klee_ai.novelai_prompt_text(prompt=prompt[:4000], aspect=aspect)
+    except Exception as exc:
+        await ctx.send(f"Klee 整理不出来这个提示词... {exc}")
+        return
+    await ctx.send(f"```text\n{generated[:1800]}\n```")
 
 
 @bot.command(name="help")
