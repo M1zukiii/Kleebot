@@ -636,6 +636,15 @@ def parse_image_prompt_mode(prompt: str) -> tuple[str, bool, str]:
     return prompt, plain_language, aspect
 
 
+def has_nsfw_tag(prompt: str) -> bool:
+    return re.search(r"(?<![A-Za-z0-9_])nsfw(?![A-Za-z0-9_])", prompt, re.IGNORECASE) is not None
+
+
+def image_file(image: bytes, *, spoiler: bool = False) -> discord.File:
+    filename = "SPOILER_klee-image.png" if spoiler else "klee-image.png"
+    return discord.File(BytesIO(image), filename=filename, spoiler=spoiler)
+
+
 async def handle_imagine(
     interaction: discord.Interaction,
     prompt: str,
@@ -661,7 +670,7 @@ async def handle_imagine(
             await respond(interaction, IMAGE_LIMIT_MESSAGE)
             return
     try:
-        image = await klee_ai.generate_image(prompt=prompt[:32000], plain_language=plain_language, aspect=aspect)
+        result = await klee_ai.generate_image_with_prompt(prompt=prompt[:32000], plain_language=plain_language, aspect=aspect)
     except Exception as exc:
         if KLEE_IMAGE_DAILY_LIMIT > 0:
             ai_usage.refund(
@@ -672,7 +681,7 @@ async def handle_imagine(
         print(f"image generation failed: {exc}", flush=True)
         await respond(interaction, f"Klee 画不出来这个... {exc}")
         return
-    file = discord.File(BytesIO(image), filename="klee-image.png")
+    file = image_file(result.data, spoiler=has_nsfw_tag(result.prompt))
     try:
         await interaction.followup.send(content=f"{interaction.user.mention} Klee 画好啦！", file=file)
     except discord.NotFound:
@@ -1212,7 +1221,11 @@ async def prefix_imagine(ctx: commands.Context, *, prompt: str) -> None:
             await message.edit(content=IMAGE_LIMIT_MESSAGE)
             return
     try:
-        image = await klee_ai.generate_image(prompt=prompt.strip()[:32000], plain_language=plain_language, aspect=aspect)
+        result = await klee_ai.generate_image_with_prompt(
+            prompt=prompt.strip()[:32000],
+            plain_language=plain_language,
+            aspect=aspect,
+        )
     except Exception as exc:
         if KLEE_IMAGE_DAILY_LIMIT > 0:
             ai_usage.refund(ctx.guild.id if ctx.guild else None, ctx.author.id, "image")
@@ -1220,7 +1233,10 @@ async def prefix_imagine(ctx: commands.Context, *, prompt: str) -> None:
         await message.edit(content=f"Klee 画不出来这个... {exc}")
         return
     await message.delete()
-    await ctx.send(f"{ctx.author.mention} Klee 画好啦！", file=discord.File(BytesIO(image), filename="klee-image.png"))
+    await ctx.send(
+        f"{ctx.author.mention} Klee 画好啦！",
+        file=image_file(result.data, spoiler=has_nsfw_tag(result.prompt)),
+    )
 
 
 @bot.command(name="naiusage", aliases=["额度", "nai额度"])

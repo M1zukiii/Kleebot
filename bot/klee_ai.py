@@ -2,6 +2,7 @@ import base64
 import os
 import random
 import re
+from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -27,6 +28,12 @@ OPENAI_IMAGE_SIZES = {
     "portrait": "1024x1536",
     "landscape": "1536x1024",
 }
+
+
+@dataclass(frozen=True)
+class GeneratedImage:
+    data: bytes
+    prompt: str
 
 
 class KleeAI:
@@ -166,6 +173,15 @@ class KleeAI:
         return text[:1800]
 
     async def generate_image(self, *, prompt: str, plain_language: bool = True, aspect: str | None = None) -> bytes:
+        return (await self.generate_image_with_prompt(prompt=prompt, plain_language=plain_language, aspect=aspect)).data
+
+    async def generate_image_with_prompt(
+        self,
+        *,
+        prompt: str,
+        plain_language: bool = True,
+        aspect: str | None = None,
+    ) -> GeneratedImage:
         if self.image_provider == "novelai":
             return await self._generate_novelai_image(prompt=prompt, plain_language=plain_language, aspect=aspect)
         if self.image_provider != "openai":
@@ -185,14 +201,14 @@ class KleeAI:
         item = response.data[0]
         b64_json = getattr(item, "b64_json", None)
         if b64_json:
-            return base64.b64decode(b64_json)
+            return GeneratedImage(data=base64.b64decode(b64_json), prompt=prompt)
 
         image_url = getattr(item, "url", None)
         if image_url:
             from urllib.request import urlopen
 
             with urlopen(image_url, timeout=30) as result:
-                return result.read()
+                return GeneratedImage(data=result.read(), prompt=prompt)
 
         raise RuntimeError("Image generation did not return image bytes.")
 
@@ -201,7 +217,7 @@ class KleeAI:
             raise RuntimeError("Prompt is empty.")
         return await self._novelai_prompt(prompt, aspect=aspect)
 
-    async def _generate_novelai_image(self, *, prompt: str, plain_language: bool, aspect: str | None) -> bytes:
+    async def _generate_novelai_image(self, *, prompt: str, plain_language: bool, aspect: str | None) -> GeneratedImage:
         if not self.novelai_token:
             raise RuntimeError("NOVELAI_TOKEN is missing.")
         if plain_language:
@@ -244,7 +260,7 @@ class KleeAI:
             raise RuntimeError(f"NovelAI image generation failed: {detail}") from exc
         if not response.files:
             raise RuntimeError("NovelAI returned no image file.")
-        return response.files[0][1]
+        return GeneratedImage(data=response.files[0][1], prompt=prompt)
 
     async def novelai_usage_text(self) -> str:
         if not self.novelai_token:
