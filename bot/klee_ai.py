@@ -173,7 +173,13 @@ class KleeAI:
         return text[:1800]
 
     async def generate_image(self, *, prompt: str, plain_language: bool = True, aspect: str | None = None) -> bytes:
-        return (await self.generate_image_with_prompt(prompt=prompt, plain_language=plain_language, aspect=aspect)).data
+        return (
+            await self.generate_image_with_prompt(
+                prompt=prompt,
+                plain_language=plain_language,
+                aspect=aspect,
+            )
+        ).data
 
     async def generate_image_with_prompt(
         self,
@@ -181,9 +187,15 @@ class KleeAI:
         prompt: str,
         plain_language: bool = True,
         aspect: str | None = None,
+        negative_prompt: str | None = None,
     ) -> GeneratedImage:
         if self.image_provider == "novelai":
-            return await self._generate_novelai_image(prompt=prompt, plain_language=plain_language, aspect=aspect)
+            return await self._generate_novelai_image(
+                prompt=prompt,
+                plain_language=plain_language,
+                aspect=aspect,
+                negative_prompt=negative_prompt,
+            )
         if self.image_provider != "openai":
             raise RuntimeError("IMAGE_PROVIDER must be openai or novelai.")
         if not self.enabled:
@@ -217,7 +229,14 @@ class KleeAI:
             raise RuntimeError("Prompt is empty.")
         return await self._novelai_prompt(prompt, aspect=aspect)
 
-    async def _generate_novelai_image(self, *, prompt: str, plain_language: bool, aspect: str | None) -> GeneratedImage:
+    async def _generate_novelai_image(
+        self,
+        *,
+        prompt: str,
+        plain_language: bool,
+        aspect: str | None,
+        negative_prompt: str | None,
+    ) -> GeneratedImage:
         if not self.novelai_token:
             raise RuntimeError("NOVELAI_TOKEN is missing.")
         if plain_language:
@@ -237,7 +256,7 @@ class KleeAI:
         request = GenerateImageInfer.build_generate(
             prompt=prompt,
             model=builder_model,
-            negative_prompt=self.novelai_negative_prompt,
+            negative_prompt=self.novelai_negative_prompt if negative_prompt is None else negative_prompt,
             ucPreset=UCPreset.TYPE0,
             steps=steps,
             sampler=sampler,

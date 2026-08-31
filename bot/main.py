@@ -84,6 +84,11 @@ IMAGE_ASPECT_CHOICES = [
     app_commands.Choice(name="Portrait 2:3", value="portrait"),
     app_commands.Choice(name="Landscape 3:2", value="landscape"),
 ]
+NEGATIVE_PROMPT_CHOICES = [
+    app_commands.Choice(name="Default", value="default"),
+    app_commands.Choice(name="Off", value="off"),
+    app_commands.Choice(name="Custom", value="custom"),
+]
 KLEE_CONTEXT_CHARS = int(os.getenv("KLEE_CONTEXT_CHARS", "900"))
 KLEE_VIDEO_METADATA_LIMIT = int(os.getenv("KLEE_VIDEO_METADATA_LIMIT", "2"))
 KLEE_VISION_DAILY_LIMIT = int(os.getenv("KLEE_VISION_DAILY_LIMIT", "3"))
@@ -589,10 +594,33 @@ async def handle_bomb(interaction: discord.Interaction, target: discord.abc.User
     await respond(interaction, f"{bomb_text(target)}\n剩余炸弹：{bombs_left}")
 
 
-def parse_image_prompt_mode(prompt: str) -> tuple[str, bool, str]:
+def consume_negative_prompt_flag(prompt: str) -> tuple[str, str | None]:
+    lowered = prompt.lower()
+    off_prefixes = ("--no-negative", "--nonegative", "--关负面", "--无负面")
+    for prefix in off_prefixes:
+        if lowered == prefix or lowered.startswith(prefix + " "):
+            return prompt[len(prefix):].strip(), ""
+
+    for prefix in ("--negative", "--负面"):
+        if lowered.startswith(prefix + "="):
+            value, _, rest = prompt[len(prefix) + 1 :].partition(" -- ")
+            return rest.strip(), value.strip()
+        if lowered.startswith(prefix + ' "'):
+            end = prompt.find('"', len(prefix) + 2)
+            if end != -1:
+                return prompt[end + 1 :].strip(), prompt[len(prefix) + 2 : end].strip()
+        if lowered.startswith(prefix + " '"):
+            end = prompt.find("'", len(prefix) + 2)
+            if end != -1:
+                return prompt[end + 1 :].strip(), prompt[len(prefix) + 2 : end].strip()
+    return prompt, None
+
+
+def parse_image_prompt_mode(prompt: str) -> tuple[str, bool, str, str | None]:
     prompt = prompt.strip()
     aspect = "square"
     plain_language = True
+    negative_prompt: str | None = None
     aspect_prefixes = {
         "--square ": "square",
         "--portrait ": "portrait",
@@ -617,6 +645,11 @@ def parse_image_prompt_mode(prompt: str) -> tuple[str, bool, str]:
     while True:
         lowered = prompt.lower()
         matched = False
+        next_prompt, parsed_negative = consume_negative_prompt_flag(prompt)
+        if parsed_negative is not None:
+            prompt = next_prompt
+            negative_prompt = parsed_negative
+            continue
         for prefix, value in aspect_prefixes.items():
             if lowered.startswith(prefix):
                 prompt = prompt[len(prefix):].strip()
@@ -633,7 +666,15 @@ def parse_image_prompt_mode(prompt: str) -> tuple[str, bool, str]:
                 break
         if not matched:
             break
-    return prompt, plain_language, aspect
+    return prompt, plain_language, aspect, negative_prompt
+
+
+def resolve_negative_prompt(mode: str = "default", custom_negative: str | None = None) -> str | None:
+    if custom_negative and custom_negative.strip():
+        return custom_negative.strip()[:4000]
+    if mode == "off":
+        return ""
+    return None
 
 
 def has_nsfw_tag(prompt: str) -> bool:
@@ -650,6 +691,8 @@ async def handle_imagine(
     prompt: str,
     mode: str = "plain",
     aspect: str = "square",
+    negative: str = "default",
+    custom_negative: str | None = None,
 ) -> None:
     if not await defer(interaction):
         return
@@ -670,7 +713,12 @@ async def handle_imagine(
             await respond(interaction, IMAGE_LIMIT_MESSAGE)
             return
     try:
-        result = await klee_ai.generate_image_with_prompt(prompt=prompt[:32000], plain_language=plain_language, aspect=aspect)
+        result = await klee_ai.generate_image_with_prompt(
+            prompt=prompt[:32000],
+            plain_language=plain_language,
+            aspect=aspect,
+            negative_prompt=resolve_negative_prompt(negative, custom_negative),
+        )
     except Exception as exc:
         if KLEE_IMAGE_DAILY_LIMIT > 0:
             ai_usage.refund(
@@ -943,21 +991,33 @@ async def slash_bomb_cn(interaction: discord.Interaction, target: discord.Member
 @app_commands.describe(prompt="Describe what you want Klee to draw")
 @app_commands.describe(mode="Plain language or raw image tags")
 @app_commands.describe(aspect="Image aspect ratio")
+@app_commands.describe(negative="Negative prompt mode")
+@app_commands.describe(custom_negative="Custom negative prompt, used when filled")
 @app_commands.choices(
     mode=[
         app_commands.Choice(name="Plain language", value="plain"),
         app_commands.Choice(name="Raw prompt/tags", value="tags"),
     ],
     aspect=IMAGE_ASPECT_CHOICES,
+    negative=NEGATIVE_PROMPT_CHOICES,
 )
-async def slash_imagine(interaction: discord.Interaction, prompt: str, mode: str = "plain", aspect: str = "square") -> None:
-    await handle_imagine(interaction, prompt, mode, aspect)
+async def slash_imagine(
+    interaction: discord.Interaction,
+    prompt: str,
+    mode: str = "plain",
+    aspect: str = "square",
+    negative: str = "default",
+    custom_negative: str | None = None,
+) -> None:
+    await handle_imagine(interaction, prompt, mode, aspect, negative, custom_negative)
 
 
 @bot.tree.command(name="生图", description="让 Klee 根据描述生成图片。")
 @app_commands.describe(prompt="想让 Klee 画什么")
 @app_commands.describe(mode="大白话，还是自己写好的提示词")
 @app_commands.describe(aspect="画幅")
+@app_commands.describe(negative="负面提示词模式")
+@app_commands.describe(custom_negative="自定义负面提示词，填了就会使用这里")
 @app_commands.choices(
     mode=[
         app_commands.Choice(name="大白话", value="plain"),
@@ -968,9 +1028,21 @@ async def slash_imagine(interaction: discord.Interaction, prompt: str, mode: str
         app_commands.Choice(name="竖图 2:3", value="portrait"),
         app_commands.Choice(name="横图 3:2", value="landscape"),
     ],
+    negative=[
+        app_commands.Choice(name="默认", value="default"),
+        app_commands.Choice(name="关闭", value="off"),
+        app_commands.Choice(name="自定义", value="custom"),
+    ],
 )
-async def slash_imagine_cn(interaction: discord.Interaction, prompt: str, mode: str = "plain", aspect: str = "square") -> None:
-    await handle_imagine(interaction, prompt, mode, aspect)
+async def slash_imagine_cn(
+    interaction: discord.Interaction,
+    prompt: str,
+    mode: str = "plain",
+    aspect: str = "square",
+    negative: str = "default",
+    custom_negative: str | None = None,
+) -> None:
+    await handle_imagine(interaction, prompt, mode, aspect, negative, custom_negative)
 
 
 @bot.tree.command(name="naiusage", description="Check NovelAI model, Anlas, and usage settings.")
@@ -1214,7 +1286,7 @@ async def prefix_bomb(ctx: commands.Context, target: discord.Member) -> None:
 @bot.command(name="imagine", aliases=["生图", "画图"])
 async def prefix_imagine(ctx: commands.Context, *, prompt: str) -> None:
     message = await ctx.send("Klee 正在画图...")
-    prompt, plain_language, aspect = parse_image_prompt_mode(prompt)
+    prompt, plain_language, aspect, negative_prompt = parse_image_prompt_mode(prompt)
     if KLEE_IMAGE_DAILY_LIMIT > 0:
         allowed, _ = ai_usage.try_use(ctx.guild.id if ctx.guild else None, ctx.author.id, "image", KLEE_IMAGE_DAILY_LIMIT)
         if not allowed:
@@ -1225,6 +1297,7 @@ async def prefix_imagine(ctx: commands.Context, *, prompt: str) -> None:
             prompt=prompt.strip()[:32000],
             plain_language=plain_language,
             aspect=aspect,
+            negative_prompt=negative_prompt,
         )
     except Exception as exc:
         if KLEE_IMAGE_DAILY_LIMIT > 0:
@@ -1246,7 +1319,7 @@ async def prefix_naiusage(ctx: commands.Context) -> None:
 
 @bot.command(name="promptgen", aliases=["提示词"])
 async def prefix_promptgen(ctx: commands.Context, *, prompt: str) -> None:
-    prompt, _, aspect = parse_image_prompt_mode(prompt)
+    prompt, _, aspect, _ = parse_image_prompt_mode(prompt)
     try:
         generated = await klee_ai.novelai_prompt_text(prompt=prompt[:4000], aspect=aspect)
     except Exception as exc:

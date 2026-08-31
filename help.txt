@@ -18,9 +18,9 @@ Kleebot 指令：
 `/afk` / `/离开状态` 设置 AFK 状态，别人 @ 你时 Klee 会提醒
 `/leaderboard` / `/排行榜` 查看排行榜：plays、fortunes、luck、bombed
 `/bomb` / `/炸弹` 消耗 1 个炸弹，让 Klee 炸一个目标
-`/imagine` / `/生图` 根据描述生成图片；可选方图、竖图、横图；模式选“大白话”会自动整理，选“提示词/标签”会原样发送
+`/imagine` / `/生图` 根据描述生成图片；可选方图、竖图、横图；模式选“大白话”会自动整理，选“提示词/标签”会原样发送；negative 可选默认、关闭或自定义
 `/promptgen` / `/提示词` 只把大白话整理成 NovelAI 提示词，不生图
 `/naiusage` / `/额度` 查看 NovelAI 模型、Anlas 和省 Anlas 设置
 `/help` / `/帮助` 查看这段指令说明
 `/fortune` / `/求签` 抽取今日幸运签，并领取 3 个炸弹
-文字指令：`{PREFIX}play <链接或歌名>`、`{PREFIX}join`、`{PREFIX}queue`、`{PREFIX}nowplaying`、`{PREFIX}shuffle`、`{PREFIX}repeat <mode>`、`{PREFIX}skip`、`{PREFIX}stop`、`{PREFIX}leave`、`{PREFIX}filter <mode>`、`{PREFIX}profile`、`{PREFIX}nickname <称呼>`、`{PREFIX}afk <原因>`、`{PREFIX}leaderboard <category>`、`{PREFIX}bomb @目标`、`{PREFIX}生图 <大白话描述>`、`{PREFIX}生图 --竖图 <大白话描述>`、`{PREFIX}生图 --横图 --tags <提示词标签>`、`{PREFIX}提示词 --竖图 <大白话描述>`、`{PREFIX}naiusage`、`{PREFIX}求签`、`{PREFIX}help`
+文字指令：`{PREFIX}play <链接或歌名>`、`{PREFIX}join`、`{PREFIX}queue`、`{PREFIX}nowplaying`、`{PREFIX}shuffle`、`{PREFIX}repeat <mode>`、`{PREFIX}skip`、`{PREFIX}stop`、`{PREFIX}leave`、`{PREFIX}filter <mode>`、`{PREFIX}profile`、`{PREFIX}nickname <称呼>`、`{PREFIX}afk <原因>`、`{PREFIX}leaderboard <category>`、`{PREFIX}bomb @目标`、`{PREFIX}生图 <大白话描述>`、`{PREFIX}生图 --竖图 <大白话描述>`、`{PREFIX}生图 --横图 --tags <提示词标签>`、`{PREFIX}生图 --no-negative <描述>`、`{PREFIX}生图 --negative "lowres, bad anatomy" <描述>`、`{PREFIX}提示词 --竖图 <大白话描述>`、`{PREFIX}naiusage`、`{PREFIX}求签`、`{PREFIX}help`
