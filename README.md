@@ -22,6 +22,14 @@ Self-hosted Discord music bot for YouTube, Bilibili, NicoNico, and Spotify track
 - Daily AI cost limits: 3 image-recognition mentions. Image generation is unlimited when `KLEE_IMAGE_DAILY_LIMIT=0`.
 - Optional cookies file for sites that require login.
 
+## Windows local chat test
+
+Install Python 3.12+, then double-click `start-local.cmd`. The local wizard creates
+a separate virtual environment, asks for your Discord token and optional chat key,
+and stores local test configuration in `.env.local` and data in `data/local-test/`.
+Docker and FFmpeg are not required for chat. See [LOCAL_TEST.md](LOCAL_TEST.md) for
+the Chinese walkthrough and test-server setup.
+
 ## Setup
 
 1. Copy `.env.example` to `.env`.
@@ -103,3 +111,90 @@ Prefix examples:
 If a source needs account cookies, export them as Netscape-format cookies and save them to `data/cookies.txt`. The Compose file mounts `./data` to `/app/data`.
 
 NicoNico often needs login cookies. The bot accepts full NicoNico URLs and short IDs such as `sm9`, `so12345`, `nm12345`, and `lv12345`. NicoNico tracks are downloaded to `data/cache` before playback to avoid CDN 403 errors, then removed after playback.
+
+
+## Chat architecture and provider selection
+
+Discord message handling stays in `bot/main.py`. `bot/conversation.py` owns recent
+conversation history and serializes turns within each channel. `bot/klee_ai.py`
+builds Klee's persona prompt, and `bot/chat_model.py` owns model configuration and
+provider-specific requests. Music, fortune, and image generation keep their
+existing modules.
+
+Recent @Klee conversations are now stored in `data/conversations.sqlite3` and
+survive restarts with the existing Compose data mount. Only addressed messages
+and successful replies are stored, bounded by `KLEE_CONTEXT_MESSAGES` per channel;
+`KLEE_CONTEXT_CHARS` bounds what is sent to the model. Group-channel context is
+shared within that channel; different channels and DMs are isolated. Author IDs
+are included to distinguish users with identical names. This is persisted recent
+context, not long-term fact learning or model training. Ordinary channel messages
+are not automatically collected. Set `KLEE_CONTEXT_MESSAGES=0` to stop storing new
+turns (use the clear command to remove existing stored turns).
+
+Use `!forgetchat` / `!清除聊天` to delete stored context for the current channel.
+In servers this requires Manage Messages; in DMs users can clear their own context.
+Use your configured command prefix instead of `!` if different.
+
+Existing `.env` files keep using OpenAI without changes. To select DeepSeek:
+
+```dotenv
+CHAT_PROVIDER=deepseek
+DEEPSEEK_API_KEY=your-deepseek-api-key
+CHAT_MODEL=deepseek-flash
+```
+
+DeepSeek uses Chat Completions with thinking disabled for short chat replies;
+OpenAI retains Responses API. `CHAT_API_KEY`, `CHAT_BASE_URL`, `CHAT_MODEL`, and
+`CHAT_TIMEOUT` optionally override the selected chat provider's settings. A missing
+DeepSeek key does not silently send chats to OpenAI. Select a vision-capable model
+if image mentions are needed (`deepseek-flash` currently supports image input).
+NovelAI plain-language prompt rewriting follows the selected chat provider;
+`NOVELAI_PROMPT_MODEL` can override its model. OpenAI image generation continues
+to use only the existing `OPENAI_*` credentials and endpoint, while NovelAI keeps
+its own token. Switching chat providers does not switch image providers.
+
+After editing `.env`, rebuild with `docker compose up -d --build`. Check the
+startup log for the chat provider/model and whether its key is configured.
+
+Offline checks: `python -m unittest discover -s tests -v` and
+`python -m compileall -q bot tests`. Live Discord/API checks need your own tokens.
+
+## Owner-driven development and updates
+
+`!develop <task>` / `!开发 <需求>` creates a model-generated draft PR via GitHub
+Actions. Generated code is checked in a separate job; review and merge the PR to
+make it eligible for deployment. `!update` / `!更新` requests a host update check,
+and `!updatestatus` / `!更新状态` shows the result. These commands are disabled
+until explicit Discord IDs are set in `KLEE_OWNER_IDS`.
+
+A separately installed Linux host timer builds/tests new `main` revisions, backs
+up data, deploys versioned images, and attempts image rollback when Discord
+readiness fails. The bot itself has no shell or Docker access. A one-time server
+and GitHub setup is required; see **DEPLOY.md → Owner development and automatic
+deployment**. These features do not run until that setup is completed.
+
+## Identity-bound fact memory
+
+Klee resolves real Discord mentions to account IDs and keeps factual preferences
+as separate (channel ID, user ID, key) rows. Food ranks use food.favorite.1,
+food.favorite.2, etc. Recent chat and facts are separate; facts survive beyond the
+recent-message limit. Other users can query a public preference in the same
+channel, but only the subject can change/delete it. There is no automatic admin
+override for conversational edits. Nicknames must match an unambiguous known
+Discord alias; use a real @mention when uncertain.
+
+Natural-language interpretation uses one additional bounded chat-model call on
+likely preference/memory requests. The model proposes operations; Python resolves
+identities, checks permissions and validates exact values before committing them.
+Invalid/ambiguous plans do not change data. Preference-query answers come directly
+from stored facts. This initial version targets explicit preferences, especially
+ranked foods; it is not general autonomous learning or a complete semantic parser.
+
+Deleting a fact removes its value (only a key tombstone may remain). To prevent
+old dialogue from reintroducing it, deletion also clears this channel's bounded
+recent conversation cache. Other users' independent facts and the subject's
+other fact keys stay intact. Full deletion removes all the subject's fact rows.
+The existing privileged !forgetchat command clears both recent history and facts
+for the entire channel. Facts are scoped per channel/DM, not shared across servers
+or channels. Existing raw conversations are not automatically imported: have each
+person explicitly restate the facts they want stored after upgrading.

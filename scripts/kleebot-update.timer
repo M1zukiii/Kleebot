@@ -1,0 +1,10 @@
+[Unit]
+Description=Check for Kleebot updates every minute
+
+[Timer]
+OnBootSec=1min
+OnUnitInactiveSec=1min
+Unit=kleebot-update.service
+
+[Install]
+WantedBy=timers.target

@@ -1,16 +1,20 @@
 import asyncio
 import os
 import re
-from collections import defaultdict, deque
+import time
+import tempfile
 from io import BytesIO
 from pathlib import Path
 from urllib.parse import urlparse
 
 import discord
 from discord import app_commands
-from discord.ext import commands
+from discord.ext import commands, tasks
 from dotenv import load_dotenv
 
+from .maintenance import is_owner, request_development, request_update, update_status
+from .fact_memory import FactMemory
+from .conversation import ConversationService, ConversationStore
 from .ai_usage import AiUsageStore
 from .fortune import (
     FortuneResult,
@@ -47,10 +51,9 @@ bot = commands.Bot(command_prefix=PREFIX, intents=intents, help_command=None)
 resolver = Resolver()
 klee_ai = KleeAI()
 players: dict[int, GuildPlayer] = {}
-chat_context: dict[int, deque[tuple[str, str]]] = defaultdict(lambda: deque(maxlen=int(os.getenv("KLEE_CONTEXT_MESSAGES", "6"))))
 BASE_DIR = Path(__file__).resolve().parent.parent
 ASSETS_DIR = BASE_DIR / "assets"
-DATA_DIR = Path("/app/data") if Path("/app").exists() else Path(__file__).resolve().parent.parent / "data"
+DATA_DIR = Path(os.getenv("KLEE_DATA_DIR") or ("/app/data" if Path("/app").exists() else str(BASE_DIR / "data")))
 HELP_TEXT_FILE = Path(os.getenv("HELP_TEXT_FILE", str(BASE_DIR / "help.txt")))
 FORTUNE_SLIP_IMAGE = ASSETS_DIR / "fortune-slip.webp"
 KLEE_FOOTER_IMAGE = ASSETS_DIR / "klee-footer.jpg"
@@ -89,7 +92,11 @@ NEGATIVE_PROMPT_CHOICES = [
     app_commands.Choice(name="Off", value="off"),
     app_commands.Choice(name="Custom", value="custom"),
 ]
-KLEE_CONTEXT_CHARS = int(os.getenv("KLEE_CONTEXT_CHARS", "900"))
+conversations = ConversationService(klee_ai, ConversationStore(
+    DATA_DIR / "conversations.sqlite3",
+    max_messages=int(os.getenv("KLEE_CONTEXT_MESSAGES", "6")),
+    max_chars=int(os.getenv("KLEE_CONTEXT_CHARS", "900")),
+), memory=FactMemory(DATA_DIR / "conversations.sqlite3", klee_ai.chat_model))
 KLEE_VIDEO_METADATA_LIMIT = int(os.getenv("KLEE_VIDEO_METADATA_LIMIT", "2"))
 KLEE_VISION_DAILY_LIMIT = int(os.getenv("KLEE_VISION_DAILY_LIMIT", "3"))
 KLEE_IMAGE_DAILY_LIMIT = int(os.getenv("KLEE_IMAGE_DAILY_LIMIT", "0"))
@@ -147,25 +154,6 @@ def split_discord_message(text: str, limit: int = 1900) -> list[str]:
     if current:
         chunks.append(current.rstrip())
     return chunks or [text[:limit]]
-
-
-def channel_context(channel_id: int) -> list[str]:
-    lines: list[str] = []
-    total = 0
-    for author, content in reversed(chat_context[channel_id]):
-        line = f"{author}: {content}"
-        if total + len(line) > KLEE_CONTEXT_CHARS:
-            break
-        lines.append(line)
-        total += len(line)
-    return list(reversed(lines))
-
-
-def remember_channel_message(channel_id: int, author: str, content: str) -> None:
-    clean = " ".join(content.strip().split())
-    if not clean:
-        return
-    chat_context[channel_id].append((author[:32], clean[:220]))
 
 
 def extract_video_urls(text: str) -> list[str]:
@@ -257,8 +245,20 @@ async def defer(interaction: discord.Interaction, ephemeral: bool = False) -> bo
     return True
 
 
+@tasks.loop(seconds=15)
+async def health_heartbeat() -> None:
+    ready_file = Path(os.getenv("KLEE_READY_FILE") or (Path(tempfile.gettempdir()) / "kleebot-ready"))
+    if bot.is_ready():
+        ready_file.write_text(str(time.time()), encoding="utf-8")
+    else:
+        ready_file.unlink(missing_ok=True)
+
+
 @bot.event
 async def on_ready() -> None:
+    Path(os.getenv("KLEE_READY_FILE") or (Path(tempfile.gettempdir()) / "kleebot-ready")).write_text(str(time.time()), encoding="utf-8")
+    if not health_heartbeat.is_running():
+        health_heartbeat.start()
     print(f"ready: {bot.user} in {len(bot.guilds)} guild(s)", flush=True)
     print(klee_ai.config_summary(), flush=True)
     try:
@@ -321,19 +321,21 @@ async def on_message(message: discord.Message) -> None:
                 await message.reply(f"{message.author.mention} {VISION_LIMIT_MESSAGE}")
                 return
         video_metadata = await video_metadata_for_prompt(extract_video_urls(mention_text))
-        reply = await klee_ai.reply(
+        reply = await conversations.reply(
+            channel_id=message.channel.id,
+            user_id=message.author.id,
             user_name=message.author.display_name,
+            user_aliases=[message.author.name, getattr(message.author, "global_name", None)],
+            mentioned_users=[
+                {"id": str(person.id), "name": person.display_name,
+                 "aliases": [person.name, getattr(person, "global_name", None)]}
+                for person in message.mentions if person.id != bot.user.id
+            ],
             message=mention_text,
             image_urls=image_urls,
-            context=channel_context(message.channel.id),
             video_metadata=video_metadata,
         )
         await message.reply(f"{message.author.mention} {reply}")
-        remembered_text = mention_text
-        if image_urls:
-            remembered_text = f"{remembered_text} [图片 x{len(image_urls[:4])}]"
-        remember_channel_message(message.channel.id, message.author.display_name, remembered_text)
-        remember_channel_message(message.channel.id, "Klee", reply)
     await bot.process_commands(message)
 
 
@@ -1326,6 +1328,52 @@ async def prefix_promptgen(ctx: commands.Context, *, prompt: str) -> None:
         await ctx.send(f"Klee 整理不出来这个提示词... {exc}")
         return
     await ctx.send(f"```text\n{generated[:1800]}\n```")
+
+
+@bot.command(name="develop", aliases=["开发"])
+async def prefix_develop(ctx: commands.Context, *, task: str) -> None:
+    if not is_owner(ctx.author.id):
+        await ctx.send("这个指令只开放给配置的主人。")
+        return
+    async with ctx.typing():
+        try:
+            result = await request_development(task)
+        except (ValueError, RuntimeError) as exc:
+            await ctx.send(str(exc))
+            return
+        except Exception:
+            await ctx.send("开发任务暂时无法提交，请检查网络和宿主机日志。")
+            return
+    await ctx.send(result, allowed_mentions=discord.AllowedMentions.none())
+
+
+@bot.command(name="update", aliases=["更新"])
+async def prefix_update(ctx: commands.Context) -> None:
+    if not is_owner(ctx.author.id):
+        await ctx.send("这个指令只开放给配置的主人。")
+        return
+    if os.name == 'nt' and os.getenv('KLEE_LOCAL_SUPERVISED') != '1':
+        await ctx.send("当前是普通本机模式，请先停止 Klee，再双击 start-maintained.cmd 启用自维护。")
+        return
+    request_update(DATA_DIR)
+    await ctx.send("已提交更新检查请求。更新程序会检查 main、测试新版并重启；结果请看 !更新状态。")
+
+
+@bot.command(name="updatestatus", aliases=["更新状态"])
+async def prefix_update_status(ctx: commands.Context) -> None:
+    if not is_owner(ctx.author.id):
+        await ctx.send("这个指令只开放给配置的主人。")
+        return
+    await ctx.send(update_status(DATA_DIR), allowed_mentions=discord.AllowedMentions.none())
+
+
+@bot.command(name="forgetchat", aliases=["清除聊天"])
+async def prefix_forgetchat(ctx: commands.Context) -> None:
+    if ctx.guild and not ctx.channel.permissions_for(ctx.author).manage_messages:
+        await ctx.send("清除频道聊天记录需要管理消息权限。")
+        return
+    await conversations.clear(ctx.channel.id)
+    await ctx.send("Klee 已清除这个频道的聊天记录和独立人物记忆。")
 
 
 @bot.command(name="help")

@@ -4,3 +4,9 @@ __pycache__/
 .git/
 data/
 
+
+.klee-updater/
+.env
+
+.env.local
+.venv-local/

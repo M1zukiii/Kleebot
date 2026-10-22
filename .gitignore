@@ -9,3 +9,9 @@ __pycache__/
 .idea/
 .vscode/
 
+
+.klee-updater/
+
+.env.local
+.venv-local/
+.klee-local/
