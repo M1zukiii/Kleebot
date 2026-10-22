@@ -62,6 +62,8 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--configure', action='store_true', help='Replace local test configuration')
     parser.add_argument('--full', action='store_true', help='Install optional NovelAI image dependencies too')
+    parser.add_argument('--maintain', action='store_true', help='Run with owner-requested updates and crash restart')
+    parser.add_argument('--maintenance-configure', action='store_true', help='Configure owner and GitHub dispatch token without replacing chat settings')
     args = parser.parse_args()
     os.chdir(ROOT)
     config = ROOT / '.env.local'
@@ -72,14 +74,26 @@ def main():
     if not python.exists():
         print('Creating a separate local Python environment...')
         venv.EnvBuilder(with_pip=True).create(environment)
-    requirements = ROOT / ('requirements.txt' if args.full else 'requirements-local.txt')
-    digest = hashlib.sha256(requirements.read_bytes()).hexdigest()
     marker = environment / 'klee-requirements.sha256'
+    full = args.full or (args.maintain and marker.exists() and
+                        marker.read_text() == hashlib.sha256((ROOT / 'requirements.txt').read_bytes()).hexdigest())
+    requirements = ROOT / ('requirements.txt' if full else 'requirements-local.txt')
+    digest = hashlib.sha256(requirements.read_bytes()).hexdigest()
     if not marker.exists() or marker.read_text() != digest:
         subprocess.run([str(python), '-m', 'pip', 'install', '-r', str(requirements)], check=True)
         marker.write_text(digest)
+    if args.maintenance_configure:
+        return subprocess.call([str(python), str(ROOT / 'scripts' / 'maintenance_setup.py'), '--repo', str(ROOT)], cwd=ROOT)
     print('Starting Kleebot locally. Keep this window open; press Ctrl+C to stop.')
     print('Use a dedicated test Discord server. Chat does not require FFmpeg or Docker.')
+    if args.maintain:
+        supervisor = [str(python), str(ROOT / 'scripts' / 'local_supervisor.py'), '--repo', str(ROOT)]
+        if full:
+            supervisor.append('--full')
+        try:
+            return subprocess.call(supervisor, cwd=ROOT)
+        except KeyboardInterrupt:
+            return 0
     command = "from dotenv import load_dotenv; load_dotenv('.env.local', override=True); import runpy; runpy.run_module('bot.main', run_name='__main__')"
     try:
         return subprocess.call([str(python), '-c', command], cwd=ROOT)

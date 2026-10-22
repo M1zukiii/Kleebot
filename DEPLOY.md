@@ -1,5 +1,7 @@
 # Deploy
 
+Windows 本机运行请使用 [本机自维护说明](LOCAL_MAINTENANCE.md)。下文自动部署服务面向 Linux。
+
 This bot is easiest to deploy with Docker Compose on a Linux VPS.
 
 ## 1. Server Requirements

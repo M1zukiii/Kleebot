@@ -247,7 +247,7 @@ async def defer(interaction: discord.Interaction, ephemeral: bool = False) -> bo
 
 @tasks.loop(seconds=15)
 async def health_heartbeat() -> None:
-    ready_file = (Path(tempfile.gettempdir()) / "kleebot-ready")
+    ready_file = Path(os.getenv("KLEE_READY_FILE") or (Path(tempfile.gettempdir()) / "kleebot-ready"))
     if bot.is_ready():
         ready_file.write_text(str(time.time()), encoding="utf-8")
     else:
@@ -256,7 +256,7 @@ async def health_heartbeat() -> None:
 
 @bot.event
 async def on_ready() -> None:
-    (Path(tempfile.gettempdir()) / "kleebot-ready").write_text(str(time.time()), encoding="utf-8")
+    Path(os.getenv("KLEE_READY_FILE") or (Path(tempfile.gettempdir()) / "kleebot-ready")).write_text(str(time.time()), encoding="utf-8")
     if not health_heartbeat.is_running():
         health_heartbeat.start()
     print(f"ready: {bot.user} in {len(bot.guilds)} guild(s)", flush=True)
@@ -1352,8 +1352,11 @@ async def prefix_update(ctx: commands.Context) -> None:
     if not is_owner(ctx.author.id):
         await ctx.send("这个指令只开放给配置的主人。")
         return
+    if os.name == 'nt' and os.getenv('KLEE_LOCAL_SUPERVISED') != '1':
+        await ctx.send("当前是普通本机模式，请先停止 Klee，再双击 start-maintained.cmd 启用自维护。")
+        return
     request_update(DATA_DIR)
-    await ctx.send("已提交更新检查请求。宿主机更新服务启用后，会检查 main、测试新版并重启。")
+    await ctx.send("已提交更新检查请求。更新程序会检查 main、测试新版并重启；结果请看 !更新状态。")
 
 
 @bot.command(name="updatestatus", aliases=["更新状态"])
