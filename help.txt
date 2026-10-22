@@ -24,3 +24,6 @@ Kleebot 指令：
 `/help` / `/帮助` 查看这段指令说明
 `/fortune` / `/求签` 抽取今日幸运签，并领取 3 个炸弹
 文字指令：`{PREFIX}play <链接或歌名>`、`{PREFIX}join`、`{PREFIX}queue`、`{PREFIX}nowplaying`、`{PREFIX}shuffle`、`{PREFIX}repeat <mode>`、`{PREFIX}skip`、`{PREFIX}stop`、`{PREFIX}leave`、`{PREFIX}filter <mode>`、`{PREFIX}profile`、`{PREFIX}nickname <称呼>`、`{PREFIX}afk <原因>`、`{PREFIX}leaderboard <category>`、`{PREFIX}bomb @目标`、`{PREFIX}生图 <大白话描述>`、`{PREFIX}生图 --竖图 <大白话描述>`、`{PREFIX}生图 --横图 --tags <提示词标签>`、`{PREFIX}生图 --no-negative <描述>`、`{PREFIX}生图 --negative "lowres, bad anatomy" <描述>`、`{PREFIX}提示词 --竖图 <大白话描述>`、`{PREFIX}naiusage`、`{PREFIX}求签`、`{PREFIX}help`
+
+
+!forgetchat / !清除聊天 — 清除当前频道的近期聊天记忆；服务器内需要管理消息权限。

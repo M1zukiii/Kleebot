@@ -1,7 +1,6 @@
 import asyncio
 import os
 import re
-from collections import defaultdict, deque
 from io import BytesIO
 from pathlib import Path
 from urllib.parse import urlparse
@@ -11,6 +10,7 @@ from discord import app_commands
 from discord.ext import commands
 from dotenv import load_dotenv
 
+from .conversation import ConversationService, ConversationStore
 from .ai_usage import AiUsageStore
 from .fortune import (
     FortuneResult,
@@ -47,7 +47,6 @@ bot = commands.Bot(command_prefix=PREFIX, intents=intents, help_command=None)
 resolver = Resolver()
 klee_ai = KleeAI()
 players: dict[int, GuildPlayer] = {}
-chat_context: dict[int, deque[tuple[str, str]]] = defaultdict(lambda: deque(maxlen=int(os.getenv("KLEE_CONTEXT_MESSAGES", "6"))))
 BASE_DIR = Path(__file__).resolve().parent.parent
 ASSETS_DIR = BASE_DIR / "assets"
 DATA_DIR = Path("/app/data") if Path("/app").exists() else Path(__file__).resolve().parent.parent / "data"
@@ -89,7 +88,11 @@ NEGATIVE_PROMPT_CHOICES = [
     app_commands.Choice(name="Off", value="off"),
     app_commands.Choice(name="Custom", value="custom"),
 ]
-KLEE_CONTEXT_CHARS = int(os.getenv("KLEE_CONTEXT_CHARS", "900"))
+conversations = ConversationService(klee_ai, ConversationStore(
+    DATA_DIR / "conversations.sqlite3",
+    max_messages=int(os.getenv("KLEE_CONTEXT_MESSAGES", "6")),
+    max_chars=int(os.getenv("KLEE_CONTEXT_CHARS", "900")),
+))
 KLEE_VIDEO_METADATA_LIMIT = int(os.getenv("KLEE_VIDEO_METADATA_LIMIT", "2"))
 KLEE_VISION_DAILY_LIMIT = int(os.getenv("KLEE_VISION_DAILY_LIMIT", "3"))
 KLEE_IMAGE_DAILY_LIMIT = int(os.getenv("KLEE_IMAGE_DAILY_LIMIT", "0"))
@@ -147,25 +150,6 @@ def split_discord_message(text: str, limit: int = 1900) -> list[str]:
     if current:
         chunks.append(current.rstrip())
     return chunks or [text[:limit]]
-
-
-def channel_context(channel_id: int) -> list[str]:
-    lines: list[str] = []
-    total = 0
-    for author, content in reversed(chat_context[channel_id]):
-        line = f"{author}: {content}"
-        if total + len(line) > KLEE_CONTEXT_CHARS:
-            break
-        lines.append(line)
-        total += len(line)
-    return list(reversed(lines))
-
-
-def remember_channel_message(channel_id: int, author: str, content: str) -> None:
-    clean = " ".join(content.strip().split())
-    if not clean:
-        return
-    chat_context[channel_id].append((author[:32], clean[:220]))
 
 
 def extract_video_urls(text: str) -> list[str]:
@@ -321,19 +305,15 @@ async def on_message(message: discord.Message) -> None:
                 await message.reply(f"{message.author.mention} {VISION_LIMIT_MESSAGE}")
                 return
         video_metadata = await video_metadata_for_prompt(extract_video_urls(mention_text))
-        reply = await klee_ai.reply(
+        reply = await conversations.reply(
+            channel_id=message.channel.id,
+            user_id=message.author.id,
             user_name=message.author.display_name,
             message=mention_text,
             image_urls=image_urls,
-            context=channel_context(message.channel.id),
             video_metadata=video_metadata,
         )
         await message.reply(f"{message.author.mention} {reply}")
-        remembered_text = mention_text
-        if image_urls:
-            remembered_text = f"{remembered_text} [图片 x{len(image_urls[:4])}]"
-        remember_channel_message(message.channel.id, message.author.display_name, remembered_text)
-        remember_channel_message(message.channel.id, "Klee", reply)
     await bot.process_commands(message)
 
 
@@ -1326,6 +1306,15 @@ async def prefix_promptgen(ctx: commands.Context, *, prompt: str) -> None:
         await ctx.send(f"Klee 整理不出来这个提示词... {exc}")
         return
     await ctx.send(f"```text\n{generated[:1800]}\n```")
+
+
+@bot.command(name="forgetchat", aliases=["清除聊天"])
+async def prefix_forgetchat(ctx: commands.Context) -> None:
+    if ctx.guild and not ctx.channel.permissions_for(ctx.author).manage_messages:
+        await ctx.send("清除频道聊天记录需要管理消息权限。")
+        return
+    await conversations.clear(ctx.channel.id)
+    await ctx.send("Klee 已经忘记这个频道的近期聊天记录啦。")
 
 
 @bot.command(name="help")

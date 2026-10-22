@@ -103,3 +103,50 @@ Prefix examples:
 If a source needs account cookies, export them as Netscape-format cookies and save them to `data/cookies.txt`. The Compose file mounts `./data` to `/app/data`.
 
 NicoNico often needs login cookies. The bot accepts full NicoNico URLs and short IDs such as `sm9`, `so12345`, `nm12345`, and `lv12345`. NicoNico tracks are downloaded to `data/cache` before playback to avoid CDN 403 errors, then removed after playback.
+
+
+## Chat architecture and provider selection
+
+Discord message handling stays in `bot/main.py`. `bot/conversation.py` owns recent
+conversation history and serializes turns within each channel. `bot/klee_ai.py`
+builds Klee's persona prompt, and `bot/chat_model.py` owns model configuration and
+provider-specific requests. Music, fortune, and image generation keep their
+existing modules.
+
+Recent @Klee conversations are now stored in `data/conversations.sqlite3` and
+survive restarts with the existing Compose data mount. Only addressed messages
+and successful replies are stored, bounded by `KLEE_CONTEXT_MESSAGES` per channel;
+`KLEE_CONTEXT_CHARS` bounds what is sent to the model. Group-channel context is
+shared within that channel; different channels and DMs are isolated. Author IDs
+are included to distinguish users with identical names. This is persisted recent
+context, not long-term fact learning or model training. Ordinary channel messages
+are not automatically collected. Set `KLEE_CONTEXT_MESSAGES=0` to stop storing new
+turns (use the clear command to remove existing stored turns).
+
+Use `!forgetchat` / `!清除聊天` to delete stored context for the current channel.
+In servers this requires Manage Messages; in DMs users can clear their own context.
+Use your configured command prefix instead of `!` if different.
+
+Existing `.env` files keep using OpenAI without changes. To select DeepSeek:
+
+```dotenv
+CHAT_PROVIDER=deepseek
+DEEPSEEK_API_KEY=your-deepseek-api-key
+CHAT_MODEL=deepseek-flash
+```
+
+DeepSeek uses Chat Completions with thinking disabled for short chat replies;
+OpenAI retains Responses API. `CHAT_API_KEY`, `CHAT_BASE_URL`, `CHAT_MODEL`, and
+`CHAT_TIMEOUT` optionally override the selected chat provider's settings. A missing
+DeepSeek key does not silently send chats to OpenAI. Select a vision-capable model
+if image mentions are needed (`deepseek-flash` currently supports image input).
+NovelAI plain-language prompt rewriting follows the selected chat provider;
+`NOVELAI_PROMPT_MODEL` can override its model. OpenAI image generation continues
+to use only the existing `OPENAI_*` credentials and endpoint, while NovelAI keeps
+its own token. Switching chat providers does not switch image providers.
+
+After editing `.env`, rebuild with `docker compose up -d --build`. Check the
+startup log for the chat provider/model and whether its key is configured.
+
+Offline checks: `python -m unittest discover -s tests -v` and
+`python -m compileall -q bot tests`. Live Discord/API checks need your own tokens.

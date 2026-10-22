@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import urlparse
 
-import httpx
+from .chat_model import ChatModel
 
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -38,6 +38,7 @@ class GeneratedImage:
 
 class KleeAI:
     def __init__(self) -> None:
+        self.chat_model = ChatModel()
         self.api_key = os.getenv("OPENAI_API_KEY")
         self.model = os.getenv("OPENAI_MODEL", "gpt-5.6-luna")
         self.image_model = os.getenv("OPENAI_IMAGE_MODEL", "gpt-image-1.5")
@@ -69,7 +70,7 @@ class KleeAI:
             "yes",
             "on",
         }
-        self.novelai_prompt_model = os.getenv("NOVELAI_PROMPT_MODEL", self.model)
+        self.novelai_prompt_model = os.getenv("NOVELAI_PROMPT_MODEL") or self.chat_model.config.model
         self.prompt_file = Path(os.getenv("KLEE_PROMPT_FILE", str(DEFAULT_PROMPT_FILE)))
         self._client = None
 
@@ -98,7 +99,7 @@ class KleeAI:
         key = "set" if self.api_key else "missing"
         novelai = "set" if self.novelai_token else "missing"
         return (
-            f"ai key={key} model={self.model} base_url={base} timeout={self.timeout:g} "
+            f"chat provider={self.chat_model.config.provider} model={self.chat_model.config.model} key={'set' if self.chat_model.enabled else 'missing'}; image ai key={key} model={self.model} base_url={base} timeout={self.timeout:g} "
             f"image_provider={self.image_provider} novelai_model={self.novelai_model} "
             f"novelai_token={novelai} avoid_anlas={self.novelai_avoid_anlas}"
         )
@@ -129,7 +130,7 @@ class KleeAI:
         context: list[str] | None = None,
         video_metadata: list[str] | None = None,
     ) -> str:
-        if not self.enabled:
+        if not self.chat_model.enabled:
             return FALLBACK_REPLY
 
         context_text = "\n".join(context or [])
@@ -146,18 +147,11 @@ class KleeAI:
         if image_urls:
             text_prompt += "\n如果用户附带了图片，请先看图片内容，再自然地一起回应。"
 
-        content = [{"type": "input_text", "text": text_prompt}]
-        for image_url in (image_urls or [])[:4]:
-            content.append({"type": "input_image", "image_url": image_url})
-
         try:
-            response = await self._get_client().responses.create(
-                model=self.model,
-                instructions=self._system_prompt(),
-                input=[{"role": "user", "content": content}],
-                max_output_tokens=180,
+            text = await self.chat_model.generate(
+                instructions=self._system_prompt(), text=text_prompt,
+                image_urls=image_urls, max_tokens=180,
             )
-            text = (response.output_text or "").strip()
         except Exception as exc:
             print(
                 f"klee ai reply failed: {type(exc).__name__}: {exc}; {self.config_summary()}",
@@ -313,6 +307,8 @@ class KleeAI:
         return "\n".join(lines)
 
     async def _novelai_get_json(self, url: str) -> dict:
+        import httpx
+
         headers = {"Authorization": f"Bearer {self.novelai_token.strip()}"}
         async with httpx.AsyncClient(timeout=min(self.image_timeout, 30)) as client:
             response = await client.get(url, headers=headers)
@@ -387,7 +383,7 @@ class KleeAI:
 
     async def _novelai_prompt(self, prompt: str, aspect: str | None = None) -> str:
         prompt = prompt.strip()
-        if not self.novelai_plain_prompt or not self.enabled or self._looks_like_tag_prompt(prompt):
+        if not self.novelai_plain_prompt or not self.chat_model.enabled or self._looks_like_tag_prompt(prompt):
             return prompt
         aspect_name = self._normalize_aspect(aspect) or "square"
         aspect_notes = {
@@ -410,13 +406,10 @@ class KleeAI:
             "Avoid overlong prompts; keep it under 900 characters."
         )
         try:
-            response = await self._get_client().responses.create(
-                model=self.novelai_prompt_model,
-                instructions=instructions,
-                input=prompt[:4000],
-                max_output_tokens=220,
+            rewritten = await self.chat_model.generate(
+                model=self.novelai_prompt_model, instructions=instructions,
+                text=prompt[:4000], max_tokens=220,
             )
-            rewritten = (response.output_text or "").strip()
         except Exception as exc:
             print(f"novelai prompt rewrite failed: {type(exc).__name__}: {exc}", flush=True)
             return prompt
