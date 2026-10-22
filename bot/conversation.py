@@ -1,7 +1,7 @@
 """Bounded, restart-safe conversation history and serialized chat turns.
 
 Only conversations addressed to Klee are stored. This is recent context, not
-automatic fact extraction or model training. Scope is a Discord channel/DM ID.
+model training. Optional FactMemory stores facts separately per user and channel.
 """
 import asyncio
 import sqlite3
@@ -60,8 +60,8 @@ class ConversationStore:
 
 
 class ConversationService:
-    def __init__(self, ai, store):
-        self.ai, self.store = ai, store
+    def __init__(self, ai, store, memory=None):
+        self.ai, self.store, self.memory = ai, store, memory
         self._locks = WeakValueDictionary()
 
     def _lock(self, channel_id):
@@ -71,16 +71,29 @@ class ConversationService:
             self._locks[channel_id] = lock
         return lock
 
-    async def reply(self, *, channel_id, user_id, user_name, message, image_urls=None, video_metadata=None):
+    async def reply(self, *, channel_id, user_id, user_name, message, image_urls=None, video_metadata=None, mentioned_users=(), user_aliases=()):
         from .klee_ai import FALLBACK_REPLY
         async with self._lock(channel_id):
+            from .fact_memory import render_mentions
+            rendered = render_mentions(message, mentioned_users)
+            if self.memory is not None:
+                result = await self.memory.handle(
+                    channel_id=channel_id, user_id=user_id, user_name=user_name,
+                    message=message, mentioned_users=mentioned_users, user_aliases=user_aliases,
+                )
+                if result is not None:
+                    return result
             context = await asyncio.to_thread(self.store.context, channel_id)
-            reply = await self.ai.reply(user_name=user_name, message=message, context=context, image_urls=image_urls, video_metadata=video_metadata)
+            if self.memory is not None:
+                context.append(await asyncio.to_thread(self.memory.own_context, channel_id, user_id))
+            reply = await self.ai.reply(user_name=f"{user_name} (ID:{user_id})", message=rendered, context=context, image_urls=image_urls, video_metadata=video_metadata)
             if reply != FALLBACK_REPLY:
-                remembered = message + (f" [图片 x{len(image_urls[:4])}]" if image_urls else "")
+                remembered = rendered + (f" [图片 x{len(image_urls[:4])}]" if image_urls else "")
                 await asyncio.to_thread(self.store.append_turn, channel_id, f"{user_name} (ID:{user_id})", remembered, reply)
             return reply
 
     async def clear(self, channel_id):
         async with self._lock(channel_id):
             await asyncio.to_thread(self.store.clear, channel_id)
+            if self.memory is not None:
+                await asyncio.to_thread(self.memory.clear, channel_id)

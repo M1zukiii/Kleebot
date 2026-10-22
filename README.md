@@ -172,3 +172,29 @@ up data, deploys versioned images, and attempts image rollback when Discord
 readiness fails. The bot itself has no shell or Docker access. A one-time server
 and GitHub setup is required; see **DEPLOY.md → Owner development and automatic
 deployment**. These features do not run until that setup is completed.
+
+## Identity-bound fact memory
+
+Klee resolves real Discord mentions to account IDs and keeps factual preferences
+as separate (channel ID, user ID, key) rows. Food ranks use food.favorite.1,
+food.favorite.2, etc. Recent chat and facts are separate; facts survive beyond the
+recent-message limit. Other users can query a public preference in the same
+channel, but only the subject can change/delete it. There is no automatic admin
+override for conversational edits. Nicknames must match an unambiguous known
+Discord alias; use a real @mention when uncertain.
+
+Natural-language interpretation uses one additional bounded chat-model call on
+likely preference/memory requests. The model proposes operations; Python resolves
+identities, checks permissions and validates exact values before committing them.
+Invalid/ambiguous plans do not change data. Preference-query answers come directly
+from stored facts. This initial version targets explicit preferences, especially
+ranked foods; it is not general autonomous learning or a complete semantic parser.
+
+Deleting a fact removes its value (only a key tombstone may remain). To prevent
+old dialogue from reintroducing it, deletion also clears this channel's bounded
+recent conversation cache. Other users' independent facts and the subject's
+other fact keys stay intact. Full deletion removes all the subject's fact rows.
+The existing privileged !forgetchat command clears both recent history and facts
+for the entire channel. Facts are scoped per channel/DM, not shared across servers
+or channels. Existing raw conversations are not automatically imported: have each
+person explicitly restate the facts they want stored after upgrading.

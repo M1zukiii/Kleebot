@@ -13,6 +13,7 @@ from discord.ext import commands, tasks
 from dotenv import load_dotenv
 
 from .maintenance import is_owner, request_development, request_update, update_status
+from .fact_memory import FactMemory
 from .conversation import ConversationService, ConversationStore
 from .ai_usage import AiUsageStore
 from .fortune import (
@@ -95,7 +96,7 @@ conversations = ConversationService(klee_ai, ConversationStore(
     DATA_DIR / "conversations.sqlite3",
     max_messages=int(os.getenv("KLEE_CONTEXT_MESSAGES", "6")),
     max_chars=int(os.getenv("KLEE_CONTEXT_CHARS", "900")),
-))
+), memory=FactMemory(DATA_DIR / "conversations.sqlite3", klee_ai.chat_model))
 KLEE_VIDEO_METADATA_LIMIT = int(os.getenv("KLEE_VIDEO_METADATA_LIMIT", "2"))
 KLEE_VISION_DAILY_LIMIT = int(os.getenv("KLEE_VISION_DAILY_LIMIT", "3"))
 KLEE_IMAGE_DAILY_LIMIT = int(os.getenv("KLEE_IMAGE_DAILY_LIMIT", "0"))
@@ -324,6 +325,12 @@ async def on_message(message: discord.Message) -> None:
             channel_id=message.channel.id,
             user_id=message.author.id,
             user_name=message.author.display_name,
+            user_aliases=[message.author.name, getattr(message.author, "global_name", None)],
+            mentioned_users=[
+                {"id": str(person.id), "name": person.display_name,
+                 "aliases": [person.name, getattr(person, "global_name", None)]}
+                for person in message.mentions if person.id != bot.user.id
+            ],
             message=mention_text,
             image_urls=image_urls,
             video_metadata=video_metadata,
@@ -1363,7 +1370,7 @@ async def prefix_forgetchat(ctx: commands.Context) -> None:
         await ctx.send("清除频道聊天记录需要管理消息权限。")
         return
     await conversations.clear(ctx.channel.id)
-    await ctx.send("Klee 已经忘记这个频道的近期聊天记录啦。")
+    await ctx.send("Klee 已清除这个频道的聊天记录和独立人物记忆。")
 
 
 @bot.command(name="help")
