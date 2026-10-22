@@ -141,6 +141,7 @@ class Moderation(commands.Cog):
     @app_commands.guild_only()
     @app_commands.default_permissions(moderate_members=True)
     @app_commands.rename(member='成员', minutes='分钟', reason='原因')
+    @app_commands.describe(member='选择要禁言的成员', minutes='禁言分钟数：1–40320，最长 28 天', reason='禁言原因，必填，将公开显示；不会触发提及提醒')
     async def timeout_slash(self, interaction: discord.Interaction, member: discord.Member,
                             minutes: app_commands.Range[int, 1, 40320], reason: str):
         await self.slash(interaction, member, minutes, reason)
@@ -149,6 +150,7 @@ class Moderation(commands.Cog):
     @app_commands.guild_only()
     @app_commands.default_permissions(moderate_members=True)
     @app_commands.rename(member='成员', reason='原因')
+    @app_commands.describe(member='选择要提前解除禁言的成员', reason='解除禁言的原因，必填，将公开显示')
     async def untimeout_slash(self, interaction: discord.Interaction, member: discord.Member, reason: str):
         await self.slash(interaction, member, None, reason)
 
