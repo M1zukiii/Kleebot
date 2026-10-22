@@ -6,6 +6,7 @@ from contextlib import contextmanager
 
 SIGNAL = re.compile(r"喜欢|最爱|爱吃|偏好|记住|记得|忘[掉记]?|favorite|prefer|remember|forget|\blikes?\b", re.I)
 KEY = re.compile(r"[a-z][a-z0-9_.-]{0,63}\Z")
+ALIAS_COMMAND = re.compile(r"(?:我的别名是|删除我的别名)\s*([^\s@<>，。！？,!?;；]{1,32})\s*[。！!]?\Z")
 PLANNER_PROMPT = """You extract explicit personal preferences and memory requests from ONE Discord message.
 Return JSON only: {"actions":[{"op":"set|forget|query","subject":"self|id:123|name:exact alias","key":"food.favorite.1","value":"拉面"}]}.
 No action for the bot Klee's own preferences or ordinary non-memory conversation.
@@ -51,6 +52,7 @@ class FactMemory:
         with self.connect() as db:
             db.execute("CREATE TABLE IF NOT EXISTS people (channel TEXT, user_id TEXT, name TEXT, aliases TEXT, PRIMARY KEY(channel,user_id))")
             db.execute("CREATE TABLE IF NOT EXISTS facts (channel TEXT, user_id TEXT, key TEXT, value TEXT, PRIMARY KEY(channel,user_id,key))")
+            db.execute("CREATE TABLE IF NOT EXISTS personal_aliases (channel TEXT, user_id TEXT, alias TEXT, PRIMARY KEY(channel,user_id,alias))")
 
     @contextmanager
     def connect(self):
@@ -70,7 +72,28 @@ class FactMemory:
     def people(self, channel):
         with self.connect() as db:
             rows = db.execute("SELECT user_id,name,aliases FROM people WHERE channel=? ORDER BY user_id", (str(channel),)).fetchall()
-        return [{"id": uid, "name": name, "aliases": json.loads(aliases)} for uid, name, aliases in rows]
+            custom = db.execute("SELECT user_id,alias FROM personal_aliases WHERE channel=?", (str(channel),)).fetchall()
+        by_user = {}
+        for uid, alias in custom:
+            by_user.setdefault(uid, []).append(alias)
+        return [{"id": uid, "name": name, "aliases": sorted(set(json.loads(aliases) + by_user.get(uid, [])))} for uid, name, aliases in rows]
+
+    def alias_command(self, channel, sender, message):
+        match = ALIAS_COMMAND.fullmatch(message.strip())
+        if match is None:
+            return None
+        alias = match[1].casefold()
+        args = (str(channel), sender["id"], alias)
+        with self.connect() as db:
+            if message.strip().startswith("删除我的别名"):
+                db.execute("DELETE FROM personal_aliases WHERE channel=? AND user_id=? AND alias=?", args)
+                return f"已移除你绑定的别名：{alias}。Discord 自带的名字仍可用于识别。"
+            count = db.execute("SELECT COUNT(*) FROM personal_aliases WHERE channel=? AND user_id=?", args[:2]).fetchone()[0]
+            exists = db.execute("SELECT 1 FROM personal_aliases WHERE channel=? AND user_id=? AND alias=?", args).fetchone()
+            if count >= 10 and not exists:
+                return "你已经绑定了 10 个别名，请先用“删除我的别名 旧别名”移除一个。"
+            db.execute("INSERT OR IGNORE INTO personal_aliases VALUES(?,?,?)", args)
+        return f"已把别名 {alias} 绑定到你的账号 {sender['name']}。同频道可用它查询你的喜好；若有重名，请直接 @ 本人。"
 
     @staticmethod
     def resolve(subject, sender, mentions, known, message):
@@ -164,6 +187,9 @@ class FactMemory:
         sender = identity(user_id, user_name, user_aliases)
         mentions = [identity(p["id"], p["name"], p.get("aliases", ())) for p in mentioned_users if str(p["id"]) != str(user_id)]
         await asyncio.to_thread(self.register, channel_id, [sender, *mentions])
+        alias_reply = await asyncio.to_thread(self.alias_command, channel_id, sender, message)
+        if alias_reply is not None:
+            return alias_reply
         if not SIGNAL.search(message):
             return None
         known = await asyncio.to_thread(self.people, channel_id)
@@ -188,7 +214,7 @@ class FactMemory:
         except PermissionError:
             return "这个请求没有执行哦：每个人只能修改或删除自己的个人记忆，不能改别人的。"
         except LookupError:
-            return "Klee 还没确认你说的是谁，请直接 @ 那个人；重名或不明确的昵称不能用来修改记忆。"
+            return "Klee 还没确认你说的是谁，请直接 @ 那个人。也可以请本人先发送“我的别名是 mizuki”绑定昵称；重名时仍需 @ 本人。"
         except Exception as exc:
             print(f"memory request failed: {type(exc).__name__}", flush=True)
             return "Klee 没能确认这次记忆请求，没有执行修改，请换个明确的说法再试。"
@@ -197,3 +223,4 @@ class FactMemory:
         with self.connect() as db:
             db.execute("DELETE FROM facts WHERE channel=?", (str(channel),))
             db.execute("DELETE FROM people WHERE channel=?", (str(channel),))
+            db.execute("DELETE FROM personal_aliases WHERE channel=?", (str(channel),))

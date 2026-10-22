@@ -92,6 +92,50 @@ class FactStoreTests(unittest.TestCase):
 
 
 class MemoryServiceTests(unittest.IsolatedAsyncioTestCase):
+    async def test_personal_alias_survives_restart_and_metadata_refresh(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            recent = ConversationStore(Path(tmp) / "chat.db")
+            model = SimpleNamespace(enabled=True, generate=AsyncMock(return_value=json.dumps(
+                {"actions": [{"op": "query", "subject": "name:mizuki", "key": "*"}]})))
+            memory = FactMemory(recent.path, model)
+            result = await memory.handle(channel_id=10, user_id=1, user_name="M1zuki", message=" 我的别名是 mizuki ")
+            self.assertIn("绑定", result)
+            model.generate.assert_not_awaited()
+            alice = identity(1, "M1zuki")
+            memory.execute(10, 1, [("set", alice, "food.favorite.1", "拉面")])
+            reopened = FactMemory(recent.path, model)
+            reopened.register(10, [identity(1, "NewName")])
+            result = await reopened.handle(channel_id=10, user_id=2, user_name="Bob", message="mizuki喜欢什么")
+            self.assertIn("拉面", result)
+            self.assertIsNone(reopened.resolve("name:mizuki", alice, [], reopened.people(11), "mizuki喜欢什么"))
+            model.generate.return_value = json.dumps({"actions": [{"op": "forget", "subject": "name:mizuki", "key": "food.favorite.1"}]})
+            result = await reopened.handle(channel_id=10, user_id=2, user_name="Bob", message="忘掉mizuki喜欢的食物")
+            self.assertIn("不能改别人", result)
+
+    async def test_alias_collision_removal_and_clear(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            recent = ConversationStore(Path(tmp) / "chat.db")
+            memory = FactMemory(recent.path, None)
+            for uid in (1, 2):
+                await memory.handle(channel_id=10, user_id=uid, user_name=str(uid), message="我的别名是 MIZUKI")
+            alice = identity(1, "1")
+            self.assertIsNone(memory.resolve("name:mizuki", alice, [], memory.people(10), "mizuki喜欢什么"))
+            await memory.handle(channel_id=10, user_id=2, user_name="2", message="删除我的别名 mizuki")
+            self.assertEqual(memory.resolve("name:mizuki", alice, [], memory.people(10), "mizuki喜欢什么")["id"], "1")
+            memory.clear(10)
+            memory.register(10, [alice])
+            self.assertIsNone(memory.resolve("name:mizuki", alice, [], memory.people(10), "mizuki喜欢什么"))
+
+    async def test_unresolved_query_does_not_claim_modification(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            recent = ConversationStore(Path(tmp) / "chat.db")
+            model = SimpleNamespace(enabled=True, generate=AsyncMock(return_value=json.dumps(
+                {"actions": [{"op": "query", "subject": "name:unknown", "key": "*"}]})))
+            memory = FactMemory(recent.path, model)
+            result = await memory.handle(channel_id=10, user_id=1, user_name="Alice", message="unknown喜欢什么")
+            self.assertIn("别名", result)
+            self.assertNotIn("修改记忆", result)
+
     async def test_same_channel_other_user_cannot_forget_alice(self):
         with tempfile.TemporaryDirectory() as tmp:
             recent = ConversationStore(Path(tmp) / "chat.db")
