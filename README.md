@@ -22,6 +22,14 @@ Self-hosted Discord music bot for YouTube, Bilibili, NicoNico, and Spotify track
 - Daily AI cost limits: 3 image-recognition mentions. Image generation is unlimited when `KLEE_IMAGE_DAILY_LIMIT=0`.
 - Optional cookies file for sites that require login.
 
+## Windows local chat test
+
+Install Python 3.12+, then double-click `start-local.cmd`. The local wizard creates
+a separate virtual environment, asks for your Discord token and optional chat key,
+and stores local test configuration in `.env.local` and data in `data/local-test/`.
+Docker and FFmpeg are not required for chat. See [LOCAL_TEST.md](LOCAL_TEST.md) for
+the Chinese walkthrough and test-server setup.
+
 ## Setup
 
 1. Copy `.env.example` to `.env`.

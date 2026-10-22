@@ -11,3 +11,6 @@ __pycache__/
 
 
 .klee-updater/
+
+.env.local
+.venv-local/

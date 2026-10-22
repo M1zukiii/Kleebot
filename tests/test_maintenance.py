@@ -1,6 +1,7 @@
 import json
 import os
 import tempfile
+import sys
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -45,7 +46,10 @@ class MaintenanceTests(unittest.TestCase):
                 apply_edits(root, [{"path": "bot/a.py", "old": "absent", "new": "pass"}])
             with self.assertRaises(SyntaxError):
                 apply_edits(root, [{"path": "bot/new.py", "old": None, "new": "def broken("}])
-            (root / "bot/link.py").symlink_to(root / "bot/a.py")
+            try:
+                (root / "bot/link.py").symlink_to(root / "bot/a.py")
+            except OSError:
+                return  # Windows may require Developer Mode for symlinks.
             with self.assertRaises(ValueError):
                 apply_edits(root, [{"path": "bot/link.py", "old": "x = 1", "new": "pass"}])
 
@@ -75,6 +79,7 @@ class MaintenanceTests(unittest.TestCase):
         self.assertEqual(writes, ["new"])
 
 
+@unittest.skipUnless(sys.platform == 'linux', 'Host updater targets Linux')
 class UpdaterFlowTests(unittest.TestCase):
     def simulate(self, root, fail_build=False, fail_deploy=False):
         import tarfile

@@ -5,7 +5,6 @@ an image override and roll back the image if Discord readiness fails. Data is
 backed up before deployment; restoring data migrations is a manual operation.
 """
 import argparse
-import fcntl
 import json
 import os
 import re
@@ -41,6 +40,8 @@ def deploy_with_rollback(compose, image, old_image, write_override, run_command=
 
 
 def update(repo, project):
+    import fcntl  # Host updater uses Linux file locks; chat bootstrap is cross-platform.
+
     repo = Path(repo).resolve()
     data = repo / "data"
     data.mkdir(exist_ok=True)

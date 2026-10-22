@@ -2,6 +2,7 @@ import asyncio
 import os
 import re
 import time
+import tempfile
 from io import BytesIO
 from pathlib import Path
 from urllib.parse import urlparse
@@ -51,7 +52,7 @@ klee_ai = KleeAI()
 players: dict[int, GuildPlayer] = {}
 BASE_DIR = Path(__file__).resolve().parent.parent
 ASSETS_DIR = BASE_DIR / "assets"
-DATA_DIR = Path("/app/data") if Path("/app").exists() else Path(__file__).resolve().parent.parent / "data"
+DATA_DIR = Path(os.getenv("KLEE_DATA_DIR") or ("/app/data" if Path("/app").exists() else str(BASE_DIR / "data")))
 HELP_TEXT_FILE = Path(os.getenv("HELP_TEXT_FILE", str(BASE_DIR / "help.txt")))
 FORTUNE_SLIP_IMAGE = ASSETS_DIR / "fortune-slip.webp"
 KLEE_FOOTER_IMAGE = ASSETS_DIR / "klee-footer.jpg"
@@ -245,7 +246,7 @@ async def defer(interaction: discord.Interaction, ephemeral: bool = False) -> bo
 
 @tasks.loop(seconds=15)
 async def health_heartbeat() -> None:
-    ready_file = Path("/tmp/kleebot-ready")
+    ready_file = (Path(tempfile.gettempdir()) / "kleebot-ready")
     if bot.is_ready():
         ready_file.write_text(str(time.time()), encoding="utf-8")
     else:
@@ -254,7 +255,7 @@ async def health_heartbeat() -> None:
 
 @bot.event
 async def on_ready() -> None:
-    Path("/tmp/kleebot-ready").write_text(str(time.time()), encoding="utf-8")
+    (Path(tempfile.gettempdir()) / "kleebot-ready").write_text(str(time.time()), encoding="utf-8")
     if not health_heartbeat.is_running():
         health_heartbeat.start()
     print(f"ready: {bot.user} in {len(bot.guilds)} guild(s)", flush=True)
