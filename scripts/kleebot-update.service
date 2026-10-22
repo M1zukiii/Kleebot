@@ -1,0 +1,12 @@
+[Unit]
+Description=Build, check and update Kleebot
+After=docker.service network-online.target
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/Kleebot
+ExecStart=/usr/bin/python3 /opt/Kleebot/scripts/update.py --repo /opt/Kleebot --project kleebot
+TimeoutStartSec=30min
+UMask=0077

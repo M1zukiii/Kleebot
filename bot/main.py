@@ -1,15 +1,17 @@
 import asyncio
 import os
 import re
+import time
 from io import BytesIO
 from pathlib import Path
 from urllib.parse import urlparse
 
 import discord
 from discord import app_commands
-from discord.ext import commands
+from discord.ext import commands, tasks
 from dotenv import load_dotenv
 
+from .maintenance import is_owner, request_development, request_update, update_status
 from .conversation import ConversationService, ConversationStore
 from .ai_usage import AiUsageStore
 from .fortune import (
@@ -241,8 +243,20 @@ async def defer(interaction: discord.Interaction, ephemeral: bool = False) -> bo
     return True
 
 
+@tasks.loop(seconds=15)
+async def health_heartbeat() -> None:
+    ready_file = Path("/tmp/kleebot-ready")
+    if bot.is_ready():
+        ready_file.write_text(str(time.time()), encoding="utf-8")
+    else:
+        ready_file.unlink(missing_ok=True)
+
+
 @bot.event
 async def on_ready() -> None:
+    Path("/tmp/kleebot-ready").write_text(str(time.time()), encoding="utf-8")
+    if not health_heartbeat.is_running():
+        health_heartbeat.start()
     print(f"ready: {bot.user} in {len(bot.guilds)} guild(s)", flush=True)
     print(klee_ai.config_summary(), flush=True)
     try:
@@ -1306,6 +1320,40 @@ async def prefix_promptgen(ctx: commands.Context, *, prompt: str) -> None:
         await ctx.send(f"Klee 整理不出来这个提示词... {exc}")
         return
     await ctx.send(f"```text\n{generated[:1800]}\n```")
+
+
+@bot.command(name="develop", aliases=["开发"])
+async def prefix_develop(ctx: commands.Context, *, task: str) -> None:
+    if not is_owner(ctx.author.id):
+        await ctx.send("这个指令只开放给配置的主人。")
+        return
+    async with ctx.typing():
+        try:
+            result = await request_development(task)
+        except (ValueError, RuntimeError) as exc:
+            await ctx.send(str(exc))
+            return
+        except Exception:
+            await ctx.send("开发任务暂时无法提交，请检查网络和宿主机日志。")
+            return
+    await ctx.send(result, allowed_mentions=discord.AllowedMentions.none())
+
+
+@bot.command(name="update", aliases=["更新"])
+async def prefix_update(ctx: commands.Context) -> None:
+    if not is_owner(ctx.author.id):
+        await ctx.send("这个指令只开放给配置的主人。")
+        return
+    request_update(DATA_DIR)
+    await ctx.send("已提交更新检查请求。宿主机更新服务启用后，会检查 main、测试新版并重启。")
+
+
+@bot.command(name="updatestatus", aliases=["更新状态"])
+async def prefix_update_status(ctx: commands.Context) -> None:
+    if not is_owner(ctx.author.id):
+        await ctx.send("这个指令只开放给配置的主人。")
+        return
+    await ctx.send(update_status(DATA_DIR), allowed_mentions=discord.AllowedMentions.none())
 
 
 @bot.command(name="forgetchat", aliases=["清除聊天"])

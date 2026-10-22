@@ -1,0 +1,54 @@
+name: Klee development
+on:
+  workflow_dispatch:
+    inputs:
+      task:
+        description: Owner development request (creates a draft PR)
+        required: true
+        type: string
+permissions: {}
+concurrency:
+  group: klee-development
+  cancel-in-progress: false
+jobs:
+  propose:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      pull-requests: write
+    outputs:
+      sha: ${{ steps.propose.outputs.sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Generate proposal without executing candidate code
+        id: propose
+        env:
+          KLEE_DEV_TASK: ${{ inputs.task }}
+          DEVELOPER_API_KEY: ${{ secrets.KLEE_DEVELOPER_API_KEY }}
+          DEVELOPER_MODEL: ${{ vars.KLEE_DEVELOPER_MODEL }}
+          GH_TOKEN: ${{ github.token }}
+        run: python scripts/develop.py
+  validate:
+    needs: propose
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.propose.outputs.sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install -r requirements.txt
+      - run: python -m compileall -q bot tests
+      - run: python -m unittest discover -s tests -v

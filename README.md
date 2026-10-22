@@ -150,3 +150,17 @@ startup log for the chat provider/model and whether its key is configured.
 
 Offline checks: `python -m unittest discover -s tests -v` and
 `python -m compileall -q bot tests`. Live Discord/API checks need your own tokens.
+
+## Owner-driven development and updates
+
+`!develop <task>` / `!开发 <需求>` creates a model-generated draft PR via GitHub
+Actions. Generated code is checked in a separate job; review and merge the PR to
+make it eligible for deployment. `!update` / `!更新` requests a host update check,
+and `!updatestatus` / `!更新状态` shows the result. These commands are disabled
+until explicit Discord IDs are set in `KLEE_OWNER_IDS`.
+
+A separately installed Linux host timer builds/tests new `main` revisions, backs
+up data, deploys versioned images, and attempts image rollback when Discord
+readiness fails. The bot itself has no shell or Docker access. A one-time server
+and GitHub setup is required; see **DEPLOY.md → Owner development and automatic
+deployment**. These features do not run until that setup is completed.
