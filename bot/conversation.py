@@ -102,8 +102,8 @@ class ConversationService:
                 await asyncio.to_thread(self.store.append_turn, channel_id, f"{user_name} (ID:{user_id})", remembered, reply)
             return reply
 
-    async def clear(self, channel_id):
+    async def clear(self, channel_id, guild_id=None):
         async with self._lock(channel_id):
             await asyncio.to_thread(self.store.clear, channel_id)
-            if self.memory is not None:
+            if self.memory is not None and guild_id is None:
                 await asyncio.to_thread(self.memory.clear, channel_id)

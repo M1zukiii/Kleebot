@@ -54,6 +54,16 @@ class MemoryRegression(unittest.IsolatedAsyncioTestCase):
         self.memory.execute('guild:100',1,[('forget',p,'food.favorite.1',None)])
         self.assertIn('已经删除',await self.ask('我最喜欢吃什么',channel=11))
 
+    async def test_channel_history_clear_preserves_legacy_and_shared_personal_memory(self):
+        from bot.conversation import ConversationService
+        p=identity(1,'M1zuki')
+        self.memory.execute(10,1,[('set',p,'food.favorite.1','拉面')])
+        recent=ConversationStore(self.memory.path)
+        recent.append_turn(10,'M1zuki','hello','hi')
+        await ConversationService(None,recent,self.memory).clear(10,guild_id=100)
+        self.assertEqual(recent.context(10),[])
+        self.assertIn('拉面',await self.ask('我最喜欢吃什么'))
+
     def test_local_parser_rejects_quoted_negative_duplicate_and_other_person(self):
         for text in ['他说我喜欢吃拉面','我不喜欢吃拉面','我喜欢吃“拉面”','他第三喜欢吃吧唧','我第一喜欢吃拉面，第一喜欢吃咖喱']:
             self.assertIsNone(food_plan(text),text)

@@ -1435,7 +1435,7 @@ async def prefix_forgetchat(ctx: commands.Context) -> None:
         return
     if ctx.interaction:
         await ctx.defer(ephemeral=True)
-    await conversations.clear(ctx.channel.id)
+    await conversations.clear(ctx.channel.id,ctx.guild.id if ctx.guild else None)
     file_service.clear_context(ctx.channel.id)
     await ctx.send("Klee 已清除这个频道的近期聊天和文件缓存。服务器共享的个人记忆保留，请本人明确说要忘掉哪一项。")
 
