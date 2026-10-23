@@ -7,12 +7,16 @@ import uuid
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
-from urllib.parse import quote, urlparse
+from urllib.parse import quote, urlparse, parse_qs
 from urllib.request import Request, urlopen
 from urllib.error import HTTPError
 
 import yt_dlp
 from yt_dlp.utils import DownloadError
+
+
+class ResolutionError(RuntimeError):
+    """A completed media lookup returned no usable track, before queue mutation."""
 
 
 @dataclass
@@ -129,12 +133,12 @@ class Resolver:
         if self._is_spotify_track_url(original_query.strip()):
             return self._resolve_spotify_track_sync(original_query.strip(), requester)
         query = self._normalize_query(query)
-        target = query if self._looks_like_url(query) else f"ytsearch1:{query}"
+        target = query if self._looks_like_url(query) or re.match(r'^(?:bili|yt)search\d*:', query) else f"ytsearch1:{query}"
         is_niconico = self._is_niconico_query(query)
         options: dict[str, Any] = {
             "format": "bestaudio/best",
             "noplaylist": True,
-            "ignoreerrors": True,
+            "ignoreerrors": False,
             "quiet": True,
             "no_warnings": True,
             "default_search": "auto",
@@ -157,16 +161,16 @@ class Resolver:
             raise
 
         if data is None:
-            raise RuntimeError("No result found.")
+            raise ResolutionError("没有找到对应的音乐结果。")
         if "entries" in data:
             entries = [entry for entry in data["entries"] if entry]
             if not entries:
-                raise RuntimeError("No playable entries found.")
+                raise ResolutionError("搜索没有返回可播放的视频，请提供具体视频链接。")
             data = entries[0]
 
         stream_url = data.get("url")
         if not stream_url:
-            raise RuntimeError("yt-dlp did not return an audio stream URL.")
+            raise ResolutionError("视频没有返回可播放的音频地址。")
 
         if self._should_download_before_playback(data):
             return self._download_media_sync(target, original_query, requester, options)
@@ -676,6 +680,18 @@ class Resolver:
 
     def _normalize_query(self, query: str) -> str:
         query = query.strip()
+        parsed = urlparse(query)
+        if parsed.hostname == 'search.bilibili.com':
+            keyword = parse_qs(parsed.query).get('keyword', [''])[0].strip()
+            if not keyword:
+                raise ValueError('B站搜索地址缺少关键词。')
+            return f'bilisearch1:{keyword}'
+        match = re.match(r'^(?:b站|哔哩哔哩|bilibili)\s*(?:搜索|搜|:|：)\s*(.+)$', query, re.I)
+        if match:
+            return f'bilisearch1:{match.group(1).strip()}'
+        match = re.match(r'^bilisearch\d*:(.+)$', query, re.I)
+        if match:
+            return f'bilisearch1:{match.group(1).strip()}'
         query = self._spotify_track_query(query)
         if self._looks_like_niconico_id(query):
             return f"https://www.nicovideo.jp/watch/{query.lower()}"

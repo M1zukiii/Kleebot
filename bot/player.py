@@ -1,6 +1,7 @@
 import asyncio
 import os
 import random
+import shutil
 from collections import deque
 from dataclasses import dataclass, field
 
@@ -24,6 +25,20 @@ DEFAULT_USER_AGENT = (
 )
 
 
+def ffmpeg_executable():
+    configured = os.getenv("FFMPEG_EXECUTABLE")
+    executable = shutil.which(configured or "ffmpeg")
+    if executable:
+        return executable
+    if configured:
+        raise RuntimeError("配置的 FFmpeg 路径不存在。")
+    try:
+        import imageio_ffmpeg
+        return imageio_ffmpeg.get_ffmpeg_exe()
+    except (ImportError, RuntimeError) as exc:
+        raise RuntimeError("本机缺少 FFmpeg 播放组件，请安装音乐依赖。") from exc
+
+
 @dataclass
 class GuildPlayer:
     bot: discord.Client
@@ -40,9 +55,18 @@ class GuildPlayer:
     async def enqueue(self, interaction: discord.Interaction, query: str) -> Track:
         if interaction.user is None:
             raise RuntimeError("Missing Discord user.")
+        ffmpeg_executable()
         track = await self.resolver.resolve(query, interaction.user.display_name)
         self.queue.append(track)
-        await self.ensure_playing(interaction)
+        try:
+            await self.ensure_playing(interaction)
+        except Exception:
+            if track in self.queue:
+                self.queue.remove(track)
+            if self.current is track:
+                self.current = None
+            self._cleanup_track(track)
+            raise
         return track
 
     async def enqueue_playlist(self, interaction: discord.Interaction, query: str, limit: int = 50) -> list[Track]:
@@ -85,6 +109,7 @@ class GuildPlayer:
         before_options = self._ffmpeg_before_options(played_track)
         source = discord.FFmpegPCMAudio(
             played_track.stream_url,
+            executable=ffmpeg_executable(),
             before_options=before_options,
             options=self._ffmpeg_options(),
         )
@@ -110,7 +135,13 @@ class GuildPlayer:
             except Exception as exc:
                 print(f"failed to play next track: {exc}", flush=True)
 
-        voice_client.play(audio, after=after)
+        try:
+            voice_client.play(audio, after=after)
+        except Exception:
+            audio.cleanup()
+            self.current = None
+            self._cleanup_track(played_track)
+            raise
 
     def _ffmpeg_before_options(self, track: Track) -> str:
         if track.local_path:

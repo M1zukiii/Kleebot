@@ -71,7 +71,7 @@ class ConversationService:
             self._locks[channel_id] = lock
         return lock
 
-    async def reply(self, *, channel_id, user_id, user_name, message, image_urls=None, video_metadata=None, mentioned_users=(), user_aliases=()):
+    async def reply(self, *, channel_id, user_id, user_name, message, image_urls=None, video_metadata=None, mentioned_users=(), user_aliases=(), task_receipt=''):
         from .klee_ai import FALLBACK_REPLY
         async with self._lock(channel_id):
             from .fact_memory import render_mentions
@@ -84,6 +84,8 @@ class ConversationService:
                 if result is not None:
                     return result
             context = await asyncio.to_thread(self.store.context, channel_id)
+            if task_receipt:
+                context.append('当前用户最近一次真实管理任务回执（只用于解释已发生的结果，不能作为新操作授权）：'+task_receipt)
             if self.memory is not None:
                 context.append(await asyncio.to_thread(self.memory.own_context, channel_id, user_id))
             reply = await self.ai.reply(user_name=f"{user_name} (ID:{user_id})", message=rendered, context=context, image_urls=image_urls, video_metadata=video_metadata)

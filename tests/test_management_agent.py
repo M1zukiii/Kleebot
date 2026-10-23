@@ -35,6 +35,7 @@ class ManagementTests(unittest.IsolatedAsyncioTestCase):
         self.guild.me = self.bot_member
         self.guild.fetch_member = AsyncMock(side_effect=lambda uid: self.actor if uid == 1 else self.bot_member)
         self.message = SimpleNamespace(id=99, guild=self.guild, author=self.actor, content='@Klee 创建一个文字频道', reply=AsyncMock(), mentions=[], channel_mentions=[])
+        self.message.channel=SimpleNamespace(id=50)
         self.bot = SimpleNamespace(user=SimpleNamespace(id=3), get_channel=Mock())
         self.agent = ManagementAgent(self.bot, None, AgentStore(Path(self.tmp.name)/'agent.db'))
 
@@ -55,6 +56,9 @@ class ManagementTests(unittest.IsolatedAsyncioTestCase):
         self.agent.execute = AsyncMock(side_effect=[{'ok':True,'channels':[]},{'ok':True,'message':'已创建 测试'}])
         self.assertTrue(await self.agent.run(self.message))
         self.assertEqual(self.agent.execute.await_count, 2)
+        self.assertIn('已创建 测试',self.agent.store.last_manager_reply(10,1,50))
+        self.assertEqual(self.agent.store.last_manager_reply(10,2,50),'')
+        self.assertEqual(self.agent.store.last_manager_reply(10,1,51),'')
         self.assertIn('已创建 测试', self.message.reply.await_args.args[0])
         self.assertEqual(self.message.reply.await_args.kwargs['allowed_mentions'].to_dict()['parse'], [])
 
@@ -119,6 +123,37 @@ class ManagementTests(unittest.IsolatedAsyncioTestCase):
         result=await self.agent.execute(self.message,'inspect_server',{},set())
         self.assertEqual([channel['id'] for channel in result['channels']],['80'])
         self.guild.fetch_channels.assert_awaited_once()
+
+    async def test_inspection_exposes_real_requester_voice(self):
+        self.guild.fetch_channels=AsyncMock(return_value=[])
+        self.guild.fetch_scheduled_events=AsyncMock(return_value=[])
+        self.actor.voice=SimpleNamespace(channel=SimpleNamespace(id=70,name='测试'))
+        result=await self.agent.execute(self.message,'inspect_server',{},set())
+        self.assertEqual(result['requester_voice'],{'id':'70','name':'测试'})
+
+    async def test_bili_music_uses_native_search_and_real_actor(self):
+        voice=SimpleNamespace(guild=self.guild,permissions_for=lambda m: SimpleNamespace(view_channel=True,connect=True,speak=True,administrator=False))
+        self.actor.voice=SimpleNamespace(channel=voice)
+        player=SimpleNamespace(enqueue=AsyncMock(return_value=SimpleNamespace(title='雨爱')))
+        self.agent.player_factory=lambda guild: player
+        self.message.content='@Klee b站搜索雨爱司凤版然后播放'
+        result=await self.agent.execute(self.message,'play_music',{'query':'雨爱司凤版'},set())
+        self.assertTrue(result['ok'])
+        self.assertEqual(player.enqueue.await_args.args[1],'bilisearch1:雨爱司凤版')
+        self.assertIs(player.enqueue.await_args.args[0].user,self.actor)
+
+    async def test_bili_search_refusal_is_explained_without_switching_platforms(self):
+        from yt_dlp.utils import DownloadError
+        voice=SimpleNamespace(guild=self.guild,permissions_for=lambda m: SimpleNamespace(view_channel=True,connect=True,speak=True,administrator=False))
+        self.actor.voice=SimpleNamespace(channel=voice)
+        player=SimpleNamespace(enqueue=AsyncMock(side_effect=DownloadError('HTTP Error 412')))
+        self.agent.player_factory=lambda guild: player
+        self.message.content='@Klee b站搜索雨爱然后播放'
+        with self.assertRaisesRegex(ModerationError,'HTTP 412'):
+            await self.agent.execute(self.message,'play_music',{'query':'雨爱'},set())
+        player.enqueue.assert_awaited_once()
+        with self.assertRaisesRegex(ModerationError,'原请求指定了B站'):
+            await self.agent.execute(self.message,'play_music',{'query':'https://youtube.com/watch?v=x'},set())
 
     async def test_moving_channel_preserves_permission_overwrites(self):
         channel=self.fake_channel(80);category=self.fake_channel(90,True)
