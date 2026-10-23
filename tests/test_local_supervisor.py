@@ -8,7 +8,7 @@ import unittest
 from unittest.mock import Mock, patch
 import zipfile
 
-from scripts.local_supervisor import LocalSupervisor, build_environment, extract_source
+from scripts.local_supervisor import LocalSupervisor, build_environment, extract_source, python_in
 
 
 class LocalUpdaterTests(unittest.TestCase):
@@ -71,6 +71,25 @@ class LocalUpdaterTests(unittest.TestCase):
         self.runner.prepare.assert_not_called()
         self.runner.stop.assert_not_called()
         self.assertEqual(self.status()['status'], 'current')
+
+    def test_short_runtime_cache_is_revision_scoped_and_validated(self):
+        self.runner.runtime_cache = self.root / 'short-cache' / 'installation'
+        self.assertEqual(self.runner.environment(self.new), self.runner.runtime_cache / self.new)
+        self.assertNotEqual(self.runner.environment(self.old), self.runner.environment(self.new))
+        with self.assertRaises(ValueError):
+            self.runner.environment('../outside')
+        self.assertEqual(self.runner.source(self.new)[1], python_in(self.runner.environment(self.new)))
+
+    def test_legacy_release_environment_remains_available_for_rollback(self):
+        self.runner.runtime_cache = self.root / 'short-cache'
+        legacy = python_in(self.runner.private / 'releases' / self.old / 'venv')
+        legacy.parent.mkdir(parents=True)
+        legacy.touch()
+        self.assertEqual(self.runner.source(self.old)[1], legacy)
+        current = python_in(self.runner.environment(self.old))
+        current.parent.mkdir(parents=True)
+        current.touch()
+        self.assertEqual(self.runner.source(self.old)[1], current)
 
     def test_only_fresh_instance_heartbeat_counts(self):
         self.runner.process = SimpleNamespace(poll=lambda: None)
