@@ -630,22 +630,26 @@ async def handle_leaderboard(interaction: discord.Interaction, category: str) ->
     await respond(interaction, text)
 
 
-async def handle_bomb(interaction: discord.Interaction, target: discord.abc.User) -> None:
+async def handle_bomb(interaction: discord.Interaction, target: discord.abc.User, count: int = 1) -> None:
     await defer(interaction)
+    if count < 1:
+        await respond(interaction, '炸弹数量必须是正整数。', ephemeral=True)
+        return
     print(f"bomb requested in {interaction.guild.id if interaction.guild else 'dm'}: {target.id}", flush=True)
     spent, bombs_left = profile_stats.spend_bomb(
         interaction.guild.id if interaction.guild else None,
         interaction.user.id,
+        count,
     )
     if not spent:
         await respond(interaction, NO_BOMBS_MESSAGE, ephemeral=True)
         return
     if bot.user and target.id == bot.user.id:
-        profile_stats.record_bombed(interaction.guild.id if interaction.guild else None, interaction.user.id)
-        await respond(interaction, f"{interaction.user.mention} 你的妈妈也是魔女吗敢这么和Klee说话。\n{bomb_text(interaction.user)}\n剩余炸弹：{bombs_left}")
+        profile_stats.record_bombed(interaction.guild.id if interaction.guild else None, interaction.user.id, spent)
+        await respond(interaction, f"{interaction.user.mention} 你的妈妈也是魔女吗敢这么和Klee说话。\n{bomb_text(interaction.user)}\n本次投掷：{spent} 个\n剩余炸弹：{bombs_left}")
         return
-    profile_stats.record_bombed(interaction.guild.id if interaction.guild else None, target.id)
-    await respond(interaction, f"{bomb_text(target)}\n剩余炸弹：{bombs_left}")
+    profile_stats.record_bombed(interaction.guild.id if interaction.guild else None, target.id, spent)
+    await respond(interaction, f"{bomb_text(target)}\n本次投掷：{spent} 个\n剩余炸弹：{bombs_left}")
 
 
 def consume_negative_prompt_flag(prompt: str) -> tuple[str, str | None]:
@@ -1030,15 +1034,16 @@ async def slash_leaderboard_cn(
 
 
 @bot.tree.command(name="bomb", description="Let Klee bomb a target.")
-@app_commands.describe(target="Target user")
-async def slash_bomb(interaction: discord.Interaction, target: discord.Member) -> None:
-    await handle_bomb(interaction, target)
+@app_commands.describe(target="Target user", count="Number to throw; exceeding your inventory uses all remaining bombs")
+async def slash_bomb(interaction: discord.Interaction, target: discord.Member, count: app_commands.Range[int, 1] = 1) -> None:
+    await handle_bomb(interaction, target, count)
 
 
 @bot.tree.command(name="炸弹", description="让 Klee 炸一个目标。")
-@app_commands.describe(target="目标用户")
-async def slash_bomb_cn(interaction: discord.Interaction, target: discord.Member) -> None:
-    await handle_bomb(interaction, target)
+@app_commands.describe(target="目标用户", count="投掷数量，超过持有量时全部投出；默认1个。")
+@app_commands.rename(count="数量")
+async def slash_bomb_cn(interaction: discord.Interaction, target: discord.Member, count: app_commands.Range[int, 1] = 1) -> None:
+    await handle_bomb(interaction, target, count)
 
 
 @bot.tree.command(name="imagine", description="Ask Klee to draw an image.")
@@ -1324,17 +1329,11 @@ async def prefix_leaderboard(ctx: commands.Context, category: str = "plays") -> 
 
 
 @bot.command(name="bomb", aliases=["炸弹"])
-async def prefix_bomb(ctx: commands.Context, target: discord.Member) -> None:
-    spent, bombs_left = profile_stats.spend_bomb(ctx.guild.id if ctx.guild else None, ctx.author.id)
-    if not spent:
-        await ctx.send(NO_BOMBS_MESSAGE)
+async def prefix_bomb(ctx: commands.Context, target: discord.Member, count: int = 1) -> None:
+    if count < 1:
+        await ctx.send('炸弹数量必须是正整数。')
         return
-    if bot.user and target.id == bot.user.id:
-        profile_stats.record_bombed(ctx.guild.id if ctx.guild else None, ctx.author.id)
-        await ctx.send(f"{ctx.author.mention} 你的妈妈也是魔女吗敢这么和Klee说话。\n{bomb_text(ctx.author)}\n剩余炸弹：{bombs_left}")
-        return
-    profile_stats.record_bombed(ctx.guild.id if ctx.guild else None, target.id)
-    await ctx.send(f"{bomb_text(target)}\n剩余炸弹：{bombs_left}")
+    await handle_bomb(_ContextInteraction(ctx), target, count)
 
 
 @bot.command(name="imagine", aliases=["生图", "画图"])
@@ -1539,8 +1538,8 @@ class _ContextFollowup:
     def __init__(self, ctx: commands.Context) -> None:
         self._ctx = ctx
 
-    async def send(self, message: str) -> None:
-        await self._ctx.send(message)
+    async def send(self, message: str, **kwargs) -> None:
+        await self._ctx.send(message, **kwargs)
 
 
 class _ContextInteraction:
