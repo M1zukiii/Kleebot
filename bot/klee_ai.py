@@ -150,7 +150,7 @@ class KleeAI:
 
         try:
             text = await self.chat_model.generate(
-                instructions=self._system_prompt() + '\n当前是普通聊天模式，没有执行群管理工具。不得声称已经禁言、创建或删除频道、安排活动、播放音乐。只有执行模块的真实结果才能确认这些操作。', text=text_prompt,
+                instructions=self._system_prompt() + '\n当前这条回复是普通聊天模式，没有在这条回复中执行群管理工具。Klee 已接入管理员任务执行模块，管理员明确委派时可以管理频道、禁言、安排活动和播放音乐。不得声称已经执行这些操作，也不要笼统声称 Klee 没有工具或不能加入语音。具体失败原因、权限和语音状态必须根据真实执行结果；缺少结果时直接说明暂时无法确认，不要猜测。', text=text_prompt,
                 image_urls=image_urls, max_tokens=900 if self.web_search else 180,
                 web_search=self.web_search,
             )

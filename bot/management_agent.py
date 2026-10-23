@@ -3,9 +3,12 @@ import asyncio
 from datetime import datetime, timedelta, timezone
 import json
 import re
+import logging
 from types import SimpleNamespace
+from urllib.parse import urlparse
 
 import discord
+from yt_dlp.utils import DownloadError
 
 from .agent_model import ToolModel
 from .mention_router import is_staff
@@ -18,6 +21,8 @@ Inspect the server before changing anything. Plan the work, call one tool at a t
 Ask for a real member mention if a target is not supplied. Preserve channel permission overwrites. Do not change permissions, roles, owner settings or secrets.
 Deletion is allowed only for empty channels explicitly mentioned in the manager's request or empty channels created during this task. Existing history is not deletable by this tool.
 No arbitrary code execution. No unrelated actions, broad cleanup, mass pings or autonomous background work. Music requires the manager to be in voice.
+The inspect_server result includes the requester's actual voice channel. Use it; never claim voice is missing without inspecting it. For music call play_music with a direct video URL or plain song keywords. For Bilibili use bilisearch1:keywords, never invent a search-page URL. A supplied voice channel mention does not replace checking the requester's real voice state.
+If the requested platform rejects a search or a video cannot be parsed, stop and explain the source error. Do not silently switch platforms or ask for unrelated permissions.
 Event times must include an explicit timezone; ask if missing. Reply in concise Chinese, identifying missing details instead of guessing.
 '''
 
@@ -43,7 +48,7 @@ TOOLS = [
     schema('timeout_member', 'Apply a manager-requested manual timeout, without automatic-warning prerequisites.',
            {'member_id': ID, 'minutes': {'type': 'integer'}, 'reason': TEXT}),
     schema('untimeout_member', 'Lift a manager-requested timeout and publicly state the reason.', {'member_id': ID, 'reason': TEXT}),
-    schema('play_music', 'Queue one song/link in the requesting manager voice channel.', {'query': TEXT}),
+    schema('play_music', 'Queue one song/link in the requesting manager voice channel. Bilibili: bilisearch1:keywords; never pass search-page URLs.', {'query': TEXT}),
     schema('stop_music', 'Stop current server music and clear its queue.', {}),
 ]
 
@@ -106,7 +111,12 @@ class ManagementAgent:
                                      'category_id': str(channel.category_id) if getattr(channel, 'category_id', None) else None})
             events = await guild.fetch_scheduled_events()
             visible_ids = {channel['id'] for channel in channels}
+            voice = getattr(actor, 'voice', None)
+            voice_channel = getattr(voice, 'channel', None)
             return {'ok': True, 'channels': channels[:200],
+                    'requester_voice': {'id': str(voice_channel.id), 'name': voice_channel.name} if voice_channel else None,
+                    'music': {'connected': getattr(guild, 'voice_client', None) is not None,
+                              'channel_id': str(guild.voice_client.channel.id) if getattr(guild, 'voice_client', None) else None},
                     'members': [{'id': str(m.id), 'name': m.display_name} for m in message.mentions if m.id != self.bot.user.id],
                     'events': [{'id': str(e.id), 'name': e.name, 'start': e.start_time.isoformat()} for e in events
                                if e.channel_id is None or str(e.channel_id) in visible_ids][:30],
@@ -219,7 +229,20 @@ class ManagementAgent:
                 raise ModerationError('请管理者先加入想放歌的语音频道。')
             await self.authorize(message, 'connect', voice.channel)
             await self.authorize(message, 'speak', voice.channel)
-            track = await self.player_factory(guild).enqueue(SimpleNamespace(guild=guild, user=actor), self.text(args['query'], 500))
+            query = self.text(args['query'], 500)
+            if re.search(r'b站|哔哩哔哩|bilibili', message.content, re.I):
+                if re.match(r'https?://', query, re.I):
+                    host = (urlparse(query).hostname or '').lower()
+                    if host not in {'bilibili.com', 'b23.tv'} and not host.endswith('.bilibili.com'):
+                        raise ModerationError('原请求指定了B站，请使用B站搜索或具体B站视频链接。')
+                elif not re.match(r'bilisearch', query, re.I):
+                    query = 'bilisearch1:' + re.sub(r'^ytsearch\d*:', '', query)
+            try:
+                track = await self.player_factory(guild).enqueue(SimpleNamespace(guild=guild, user=actor), query)
+            except DownloadError as exc:
+                if '412' in str(exc) and ('bilisearch' in query or 'bilibili.com' in query):
+                    raise ModerationError('B站暂时拒绝了搜索或读取请求（HTTP 412），没有加入播放队列。请稍后再试，或提供具体 BV 视频链接。') from exc
+                raise ModerationError('音乐来源暂时无法解析，没有加入播放队列。请提供具体视频链接再试。') from exc
             return {'ok': True, 'message': f'已加入播放队列：{track.title}'}
         raise ModerationError('此工具尚未实现。')
 
@@ -253,10 +276,14 @@ class ManagementAgent:
                             try:
                                 cache[key] = await self.execute(message, call['name'], args, created)
                             except Exception as exc:
+                                logging.getLogger(__name__).exception('Manager tool failed: guild=%s tool=%s', message.guild.id, call['name'])
                                 cache[key] = {'ok': False, 'error': str(exc) if isinstance(exc, ModerationError) else type(exc).__name__}
                                 await asyncio.to_thread(self.store.finish, record, 'rejected' if isinstance(exc, ModerationError) else 'failed_or_unconfirmed')
                                 if not isinstance(exc, (ModerationError, discord.Forbidden, discord.NotFound)):
-                                    errors.append('执行结果未确认，已停止后续动作，请先检查服务器状态。')
+                                    if call['name'] == 'play_music':
+                                        errors.append(f'音乐未能加入播放队列（{type(exc).__name__}），已停止；详细原因已写入本机日志。')
+                                    else:
+                                        errors.append('执行结果未确认，已停止后续动作，请先检查服务器状态。')
                                     break
                             else:
                                 await asyncio.to_thread(self.store.finish, record, 'success')
@@ -273,5 +300,7 @@ class ManagementAgent:
             text = ('已执行：\n'+'\n'.join(completed)) if completed else '这次没有执行更改。'
             if errors:
                 text += '\n说明：'+'；'.join(dict.fromkeys(errors))[:900]
+            await asyncio.to_thread(self.store.action, message.guild.id, 'manager_reply',
+                                    {'actor': str(message.author.id), 'channel': str(message.channel.id), 'reply': text[:1800]}, 'reported')
             await message.reply(text[:1800], allowed_mentions=discord.AllowedMentions.none())
             return True

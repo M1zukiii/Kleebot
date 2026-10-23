@@ -333,6 +333,7 @@ async def on_message(message: discord.Message) -> None:
                 return
         video_metadata = await video_metadata_for_prompt(extract_video_urls(mention_text))
         reply = await conversations.reply(
+            task_receipt=await asyncio.to_thread(autonomy.store.last_manager_reply, message.guild.id, message.author.id, message.channel.id) if autonomy is not None and message.guild else '',
             channel_id=message.channel.id,
             user_id=message.author.id,
             user_name=message.author.display_name,

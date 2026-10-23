@@ -82,3 +82,13 @@ class AgentStore:
     def recent(self, guild):
         with self.connect() as db:
             return [dict(row) for row in db.execute('SELECT tool,state,detail,stamp FROM agent_actions WHERE guild=? ORDER BY id DESC LIMIT 5', (str(guild),))]
+
+    def last_manager_reply(self, guild, actor, channel):
+        with self.connect() as db:
+            rows = db.execute("SELECT detail FROM agent_actions WHERE guild=? AND tool='manager_reply' AND stamp>? ORDER BY id DESC LIMIT 50",
+                              (str(guild), time.time()-1800)).fetchall()
+        for row in rows:
+            detail = json.loads(row['detail'])
+            if detail.get('actor') == str(actor) and detail.get('channel') == str(channel):
+                return detail.get('reply', '')
+        return ''
