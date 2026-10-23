@@ -93,13 +93,16 @@ class DiagnosticControls(commands.Cog):
         if expected is None:
             return '播放等动作没有可唯一对应的Discord审核记录，不能据此自动确认；不会重试。'
         target = (args.get('member_id') or args.get('channel_id')) if journal else row['member']
+        if expected == 'guild_update':
+            target = guild.id
         matches = []
         after = datetime.fromtimestamp(row['stamp'],timezone.utc)-timedelta(seconds=10)
         async for entry in guild.audit_logs(limit=100,action=getattr(discord.AuditLogAction,expected),after=after):
             if getattr(entry.user,'id',None) != self.bot.user.id:
                 continue
             reason = entry.reason or ''
-            if not re.search(r'(?:ref=|request )'+re.escape(str(mid))+r'(?!\d)',reason):
+            if not (re.search(r' ref='+re.escape(str(mid))+r'\Z',reason) or
+                    re.fullmatch(r'Klee manager task by \d+, request '+re.escape(str(mid)),reason)):
                 continue
             if target and str(getattr(entry.target,'id',None)) != str(target):
                 continue

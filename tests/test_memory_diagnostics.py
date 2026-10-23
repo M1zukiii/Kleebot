@@ -119,7 +119,7 @@ class DiagnosticRegression(unittest.IsolatedAsyncioTestCase):
             yield entry
         self.guild.audit_logs=logs
         self.assertIn('没有找到唯一',await self.controls.reconcile(self.guild,self.actor,'管理',str(record)))
-        entry.reason='Klee request 123'
+        entry.reason='Klee manager task by 1, request 123'
         self.assertIn('没有重新执行',await self.controls.reconcile(self.guild,self.actor,'管理',str(record)))
         self.assertEqual(self.agent.store.recent(100)[0]['state'],'success')
         self.assertIn('不会重复执行',await self.controls.reconcile(self.guild,self.actor,'管理',str(record)))
