@@ -14,7 +14,8 @@ from .mention_router import MentionRouter, is_staff
 from .management_agent import ManagementAgent
 
 
-DEFAULT_GOAL = '只检查真正 @Klee 的发言，识别明确定向辱骂（包括对Klee的辱骂）、骚扰、仇恨攻击和刷屏。普通聊天、玩笑和不同意见不处罚。先警告，三次警告后仍继续违规才禁言60秒。'
+DEFAULT_GOAL = '只检查真正 @Klee 的发言，识别明确定向辱骂（包括对Klee的辱骂）、恶意骚扰和仇恨攻击。普通聊天、玩笑、不同意见和引用不处罚。首次禁言60秒作为警告；24小时内再犯依次5分钟、15分钟、60分钟，上限60分钟。'
+PENALTY_RULE = '违规直接禁言：首次60秒作为警告，24小时内再犯依次5分钟、15分钟、60分钟，上限60分钟。'
 
 
 def owner_allowed(guild, member):
@@ -71,13 +72,17 @@ class GuildAgent(commands.Cog):
                 await asyncio.to_thread(self.store.observe, message.guild.id, message.channel.id,
                                         message.id, message.author.id, message.content,
                                         message.created_at.timestamp())
-                warnings = await asyncio.to_thread(self.store.warnings, message.guild.id, message.author.id)
                 protected = message.author.id == message.guild.owner_id or message.author.guild_permissions.administrator
-                action = 'timeout_member' if len(warnings) >= 3 and not protected else 'warn_member'
+                if protected:
+                    return False
+                if await asyncio.to_thread(self.store.mention_interrupted, message.guild.id):
+                    await asyncio.to_thread(self.store.pause, message.guild.id)
+                    return False
+                action = 'harassment_timeout'
                 args = {'member_id': str(message.author.id), 'channel_id': str(message.channel.id),
                         'message_id': str(message.id), 'reason': route['reason']}
                 result = await self.execute(message.guild, goal['version'], action, args,
-                                            {str(message.id): {'content': message.content[:700]}})
+                                            {str(message.id): {'content': message.content}})
                 return bool(result.get('ok'))
         except asyncio.CancelledError:
             raise
@@ -101,7 +106,7 @@ class GuildAgent(commands.Cog):
         return goal, owner
 
     async def execute(self, guild, version, name, arguments, evidence_ids):
-        if name not in {'warn_member', 'timeout_member'}:
+        if name not in {'warn_member', 'timeout_member', 'harassment_timeout'}:
             raise ModerationError('未知工具。')
         expected = {'member_id', 'channel_id', 'message_id', 'reason'}
         if not isinstance(arguments, dict) or set(arguments) != expected:
@@ -127,7 +132,8 @@ class GuildAgent(commands.Cog):
         message = await channel.fetch_message(int(arguments['message_id']))
         if self.bot.user not in message.mentions:
             raise ModerationError('只有真正 @Klee 的消息才能触发检查。')
-        if isinstance(evidence_ids, dict) and message.content[:700] != evidence_ids[arguments['message_id']]['content']:
+        observed_content = message.content if name == 'harassment_timeout' else message.content[:700]
+        if isinstance(evidence_ids, dict) and observed_content != evidence_ids[arguments['message_id']]['content']:
             raise ModerationError('消息内容已修改，本轮不再处理这条证据。')
         if str(message.author.id) != arguments['member_id'] or message.author.bot:
             raise ModerationError('消息作者与目标成员不符。')
@@ -135,17 +141,29 @@ class GuildAgent(commands.Cog):
             raise ModerationError('只处理十分钟以内的新违规消息。')
         target = await guild.fetch_member(message.author.id)
         bot_member = await guild.fetch_member(guild.me.id)
-        if name == 'timeout_member':
+        if name in {'timeout_member', 'harassment_timeout'}:
             check_members(guild, owner, target, bot_member)
         warnings = await asyncio.to_thread(self.store.warnings, guild.id, target.id)
-        if warnings and message.created_at.timestamp() <= warnings[-1]['stamp']:
+        if name != 'harassment_timeout' and warnings and message.created_at.timestamp() <= warnings[-1]['stamp']:
             raise ModerationError('这条消息发生在上次警告之前，不能作为继续违规的依据。')
         if target.is_timed_out():
             raise ModerationError('成员已在禁言中，不重复处罚。')
         if name == 'timeout_member' and len(warnings) < 3:
             raise ModerationError('还没有三次有效警告，不能自主禁言。')
+        minutes = 1
+        if name == 'harassment_timeout':
+            if await asyncio.to_thread(self.store.mention_interrupted, guild.id):
+                await asyncio.to_thread(self.store.pause, guild.id)
+                raise ModerationError('上次禁言结果未确认，提及检查已暂停。')
+            strikes = await asyncio.to_thread(self.store.mention_strikes, guild.id, target.id)
+            if strikes and message.created_at.timestamp() <= strikes[-1]['stamp']:
+                raise ModerationError('不重复处罚上次禁言前的消息。')
+            minutes = (1, 5, 15, 60)[min(len(strikes), 3)]
         await self.current(guild, version)
+        if name == 'harassment_timeout' and not await asyncio.to_thread(self.store.reserve_mention, guild.id, target.id, message.id, minutes):
+            return {'ok': False, 'error': '此消息已处理，不重复处罚。'}
         action_id = await asyncio.to_thread(self.store.action, guild.id, name, arguments, 'pending')
+        confirmed = False
         try:
             if name == 'warn_member':
                 count = len(warnings) + 1
@@ -158,21 +176,32 @@ class GuildAgent(commands.Cog):
             else:
                 async def guard():
                     await self.current(guild, version)
-                receipt = await apply_timeout(guild, owner, target, bot_member, channel, 1,
-                                              '自治：三次警告后仍继续违规；' + reason, before_apply=guard)
-                receipt.duration_label = '60秒'
+                label = (f'提及骚扰：24小时内第{len(strikes)+1}次，首次60秒作为警告；'
+                         if name == 'harassment_timeout' else '自治：三次警告后仍继续违规；')
+                receipt = await apply_timeout(guild, owner, target, bot_member, channel, minutes,
+                                              label + reason, before_apply=guard)
+                confirmed = True
+                receipt.duration_label = '60秒' if minutes == 1 else f'{minutes}分钟'
                 receipt.automated = True
-                await asyncio.to_thread(self.store.consume, guild.id, target.id)
+                if name == 'harassment_timeout':
+                    await asyncio.to_thread(self.store.finish_mention, message.id, 'applied')
+                else:
+                    await asyncio.to_thread(self.store.consume, guild.id, target.id)
                 await asyncio.to_thread(self.store.finish, action_id, 'applied')
                 try:
                     await publish_receipt(channel, bot_member, receipt)
                     announced = True
                 except discord.HTTPException:
                     announced = False
-                result = {'ok': True, 'timeout_seconds': 60, 'member_id': str(target.id), 'announced': announced}
+                result = {'ok': True, 'timeout_seconds': minutes*60, 'member_id': str(target.id), 'announced': announced}
             await asyncio.to_thread(self.store.finish, action_id, 'success')
             return result
         except Exception as exc:
+            if name == 'harassment_timeout':
+                # Keep confirmed writes even if reporting later fails.
+                if not confirmed:
+                    await asyncio.to_thread(self.store.finish_mention, message.id,
+                        'rejected' if isinstance(exc, (ModerationError, discord.Forbidden, discord.NotFound)) else 'uncertain')
             await asyncio.to_thread(self.store.finish, action_id, 'failed_or_unconfirmed')
             if not isinstance(exc, (ModerationError, discord.Forbidden, discord.NotFound)):
                 # A lost response might follow an applied effect. Do not
@@ -185,8 +214,10 @@ class GuildAgent(commands.Cog):
             return '只有配置的主人或服务器所有者，且拥有管理服务器权限，才能设置自治。'
         if operation == 'pause':
             await asyncio.to_thread(self.store.pause, guild.id)
-            return '自动警告已暂停；管理者明确交代的任务和手动指令仍可用。现有禁言仍由 Discord 按时解除。'
+            return '提及骚扰检查已暂停；管理任务、手动指令和独立防刷屏开关仍可用。现有禁言按时解除。'
         if operation == 'start':
+            if await asyncio.to_thread(self.store.mention_interrupted, guild.id):
+                return '存在结果未确认的提及禁言，请先核对本机日志和Discord实际状态。'
             if not self.chat.enabled:
                 return '请先配置聊天 API Key，agent 会沿用当前聊天模型。'
             if not 1 <= len(goal.strip()) <= 1500:
@@ -199,13 +230,13 @@ class GuildAgent(commands.Cog):
                 return '开启前，你和 Klee 都需要禁言成员权限。'
             await asyncio.to_thread(self.store.set_goal, guild.id, actor.id, channel.id, goal.strip())
             self.failures[guild.id] = 0
-            return '提及检查已开启：只判断真正 @Klee 的发言，不观察其他群聊。三次有效警告后仍继续违规，禁言 60 秒。所有公告关闭提及提醒。'
+            return '提及检查已开启：只判断真正 @Klee 的发言。'+PENALTY_RULE+'所有公告关闭提及提醒。'
         saved = await asyncio.to_thread(self.store.goal, guild.id)
         if not saved:
             return '尚未开启自治。使用 /自治开启 设置目标。'
         recent = await asyncio.to_thread(self.store.recent, guild.id)
         state = '提及检查已开启（无后台观察）' if saved['enabled'] else '已暂停'
-        tools = {'cycle': '发言检查', 'warn_member': '警告', 'timeout_member': '禁言',
+        tools = {'cycle': '发言检查', 'warn_member': '警告', 'timeout_member': '禁言', 'harassment_timeout': '提及骚扰禁言',
                  'manager_inspect_server': '读取服务器', 'manager_create_channel': '创建频道',
                  'manager_edit_channel': '调整频道', 'manager_delete_empty_channel': '删除空频道',
                  'manager_set_welcome_channel': '设置欢迎频道', 'manager_create_event': '创建活动',
@@ -214,19 +245,19 @@ class GuildAgent(commands.Cog):
         states = {'complete': '完成', 'success': '成功', 'rejected': '未执行', 'failed': '失败',
                   'applied': '已执行', 'pending': '执行中', 'failed_or_unconfirmed': '结果未确认', 'step_limit': '本轮已结束'}
         entries = [f"{tools.get(item['tool'], '管理动作')}：{states.get(item['state'], '已记录')}" for item in recent]
-        return f"自治：{state}\n目标：{saved['goal']}\n规则：三次警告后继续违规，禁言 60 秒。\n近期执行：" + ('；'.join(entries) or '暂无')
+        return f"自治：{state}\n目标：{saved['goal']}\n规则：{PENALTY_RULE}\n近期执行：" + ('；'.join(entries) or '暂无')
 
     @app_commands.command(name='自治开启', description='开启被 @Klee 时的发言检查，不观察其他群聊。')
     @app_commands.guild_only()
     @app_commands.default_permissions(manage_guild=True)
-    @app_commands.describe(goal='长期目标：先警告，三次警告后仍继续违规才禁言60秒')
+    @app_commands.describe(goal='发言规则：首次禁言60秒作为警告，再犯逐级增加')
     @app_commands.rename(goal='目标')
     async def start_slash(self, interaction: discord.Interaction, goal: str = DEFAULT_GOAL):
         await interaction.response.defer(ephemeral=True)
         text = await self.control(interaction.guild, interaction.user, interaction.channel, 'start', goal)
         await interaction.followup.send(text, ephemeral=True, allowed_mentions=discord.AllowedMentions.none())
 
-    @app_commands.command(name='自治暂停', description='暂停被 @Klee 时的自动警告和禁言。')
+    @app_commands.command(name='自治暂停', description='暂停被 @Klee 时的骚扰判断和自动禁言。')
     @app_commands.guild_only()
     @app_commands.default_permissions(manage_guild=True)
     async def pause_slash(self, interaction: discord.Interaction):
