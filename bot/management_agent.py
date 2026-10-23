@@ -26,6 +26,7 @@ No arbitrary code execution. No unrelated actions, broad cleanup, mass pings or 
 The inspect_server result includes the requester's actual voice channel. Use it; never claim voice is missing without inspecting it. For music call play_music with a direct video URL or plain song keywords. For Bilibili use bilisearch1:keywords, never invent a search-page URL. A supplied voice channel mention does not replace checking the requester's real voice state.
 If the requested platform rejects a search or a video cannot be parsed, stop and explain the source error. Do not silently switch platforms or ask for unrelated permissions.
 Event times must include an explicit timezone; ask if missing. Reply in concise Chinese, identifying missing details instead of guessing.
+For a requested operational log channel, create it only if needed and call set_log_channel to actually connect logging. Creating a channel alone does not forward logs. Explain any unfinished part explicitly.
 '''
 
 
@@ -45,6 +46,7 @@ TOOLS = [
            {'channel_id': ID, 'name': OPTIONAL, 'category_id': OPTIONAL, 'topic': OPTIONAL}),
     schema('delete_empty_channel', 'Delete only an empty explicitly mentioned channel or one created in this task.', {'channel_id': ID}),
     schema('set_welcome_channel', 'Set the server system welcome channel and enable native join notices.', {'channel_id': ID}),
+    schema('set_log_channel', 'Connect startup/shutdown, update, development result and redacted error receipts to a text channel; never raw chats or credentials.', {'channel_id': ID}),
     schema('create_event', 'Create one Discord scheduled event; start_iso needs timezone offset.',
            {'name': TEXT, 'start_iso': TEXT, 'duration_minutes': {'type': 'integer'}, 'location': TEXT, 'description': TEXT}),
     schema('timeout_member', 'Apply a manager-requested manual timeout, without automatic-warning prerequisites.',
@@ -124,6 +126,15 @@ class ManagementAgent:
                     'events': [{'id': str(e.id), 'name': e.name, 'start': e.start_time.isoformat()} for e in events
                                if e.channel_id is None or str(e.channel_id) in visible_ids][:30],
                     'utc_now': datetime.now(timezone.utc).isoformat()}
+        if name == 'set_log_channel':
+            channel=self.channel(guild,args['channel_id'])
+            actor,_=await self.authorize(message,'manage_guild')
+            if not re.search(r'日志|\blog(?:ging|s)?\b',message.content,re.I):
+                raise ModerationError('原请求没有要求设置日志频道。')
+            service=self.bot.get_cog('Operations')
+            if service is None: raise ModerationError('运行日志模块尚未启用。')
+            result=await service.configure(guild,actor,channel)
+            return {'ok':True,'message':result}
         if name == 'create_channel':
             label = self.text(args['name'], 100)
             category = self.channel(guild, args['category_id']) if args['category_id'] is not None else None

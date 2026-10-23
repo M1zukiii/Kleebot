@@ -16,10 +16,12 @@ from unittest.mock import AsyncMock
 from bot.main import prefix_bomb,profile_stats
 from bot.main import bot,Moderation,GuildAgent,SpamGuard,BudgetControls,MathCommands,FileCommands,file_service,conversations,klee_ai,DATA_DIR,get_player
 from bot.diagnostic_controls import DiagnosticControls
+from bot.operations import Operations
 async def main():
     for cog in (Moderation(bot),SpamGuard(bot,DATA_DIR),GuildAgent(bot,klee_ai.chat_model,DATA_DIR,player_factory=get_player),BudgetControls(klee_ai.chat_model.budget),MathCommands(),FileCommands(file_service,conversations)):
         await bot.add_cog(cog)
     await bot.add_cog(DiagnosticControls(bot,klee_ai.diagnostics,bot.get_cog('GuildAgent'),bot.get_cog('SpamGuard')))
+    await bot.add_cog(Operations(bot,DATA_DIR))
     commands={c.name:c for c in bot.tree.get_commands()}
     guild=SimpleNamespace(id=10)
     actor=SimpleNamespace(id=1,mention='<@1>')
@@ -43,7 +45,7 @@ asyncio.run(main())
         self.assertEqual(result.returncode, 0, result.stderr)
         state = json.loads(result.stdout.splitlines()[-1])
         self.assertEqual(state['missing'], [])
-        for name in ('开发','更新','更新状态','自维护检查','诊断','核对操作','清除聊天','读文件','生成文件','公式','额度状态','防刷屏设置','防刷屏状态'):
+        for name in ('开发','更新','更新状态','自维护检查','日志频道','诊断','核对操作','清除聊天','读文件','生成文件','公式','额度状态','防刷屏设置','防刷屏状态'):
             self.assertIn(name, state['names'])
         self.assertEqual(state['options']['读文件'][0]['type'], 11)  # native Attachment option
         formats = next(option['choices'] for option in state['options']['生成文件'] if option['name'] == '格式')

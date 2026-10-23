@@ -27,7 +27,7 @@ def update_status(data_dir: Path) -> str:
     return f"更新状态：{state.get('status', 'unknown')}\n版本：{str(state.get('revision', 'unknown'))[:12]}\n{state.get('message', '')}"[:1700]
 
 
-async def request_development(task: str) -> str:
+async def request_development(task: str, request_id: str = '') -> str:
     import httpx
     task = task.strip()
     if not 1 <= len(task) <= 4000:
@@ -38,11 +38,16 @@ async def request_development(task: str) -> str:
         raise ValueError("KLEE_GITHUB_REPO 格式应为 owner/repo。")
     if not token:
         raise ValueError("尚未配置 KLEE_GITHUB_ACTIONS_TOKEN。")
+    if request_id and not re.fullmatch(r'[a-f0-9]{32}',request_id):
+        raise ValueError('Invalid development request ID')
+    inputs = {'task':task}
+    if request_id:
+        inputs['request_id'] = request_id
     async with httpx.AsyncClient(timeout=20) as client:
         response = await client.post(
             f"https://api.github.com/repos/{repo}/actions/workflows/klee-develop.yml/dispatches",
             headers={"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json"},
-            json={"ref": "main", "inputs": {"task": task}},
+            json={"ref": "main", "inputs": inputs},
         )
     if response.status_code not in {200, 201, 204}:
         # Never print response bodies or tokens into Discord.

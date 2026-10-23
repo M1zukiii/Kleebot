@@ -12,7 +12,8 @@ def local_music_request(content, bot_id):
     if not match:
         return None
     query = (match.group(1) or match.group(2)).strip()
-    if not 1 <= len(query) <= 500 or re.search(r'[?？]|怎么|如何|为什么|能否|能不能|可不可以|失败|不了|不能|权限|是什么|吗$|^吧$', query):
+    prose = re.sub(r'https?://[^\s<>《》]+', '', query)
+    if not 1 <= len(query) <= 500 or re.search(r'[?？]|怎么|如何|为什么|能否|能不能|可不可以|失败|不了|不能|权限|是什么|吗$|^吧$', prose):
         return None
     return query
 

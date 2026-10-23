@@ -182,6 +182,23 @@ class ManagementTests(unittest.IsolatedAsyncioTestCase):
         channel.permissions_for=Mock(return_value=SimpleNamespace(view_channel=True,manage_channels=True,read_message_history=True,administrator=False))
         return channel
 
+    async def test_explicit_log_request_connects_operations(self):
+        channel = self.fake_channel(80)
+        self.bot.get_channel.return_value = channel
+        service = SimpleNamespace(configure=AsyncMock(return_value='已接通日志'))
+        self.bot.get_cog = Mock(return_value=service)
+        self.message.content = '请把运行日志发到 <#80>'
+        result = await self.agent.execute(self.message, 'set_log_channel', {'channel_id': '80'}, set())
+        self.assertTrue(result['ok'])
+        service.configure.assert_awaited_once_with(self.guild, self.actor, channel)
+
+    async def test_unrelated_request_cannot_change_log_channel(self):
+        self.bot.get_channel.return_value = self.fake_channel(80)
+        self.bot.get_cog = Mock()
+        with self.assertRaisesRegex(ModerationError, '原请求'):
+            await self.agent.execute(self.message, 'set_log_channel', {'channel_id': '80'}, set())
+        self.bot.get_cog.assert_not_called()
+
     async def test_existing_channel_history_is_never_deleted(self):
         channel=self.fake_channel(80)
         async def history(**kwargs):
