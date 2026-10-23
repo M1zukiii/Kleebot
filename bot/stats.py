@@ -22,10 +22,10 @@ class ProfileStatsStore:
             profile["best_fortune"] = {"label": label, "luck_delta": luck_delta}
         self._save(data)
 
-    def record_bombed(self, guild_id: int | None, user_id: int) -> None:
+    def record_bombed(self, guild_id: int | None, user_id: int, count: int = 1) -> None:
         data = self._load()
         profile = self._profile(data, guild_id, user_id)
-        profile["bombed"] = int(profile.get("bombed", 0)) + 1
+        profile["bombed"] = int(profile.get("bombed", 0)) + count
         self._save(data)
 
     def claim_daily_bombs(self, guild_id: int | None, user_id: int) -> tuple[bool, int]:
@@ -35,16 +35,19 @@ class ProfileStatsStore:
         self._save(data)
         return True, int(profile["bombs"])
 
-    def spend_bomb(self, guild_id: int | None, user_id: int) -> tuple[bool, int]:
+    def spend_bomb(self, guild_id: int | None, user_id: int, count: int = 1) -> tuple[int, int]:
+        if type(count) is not int or count < 1:
+            raise ValueError('炸弹数量必须是正整数。')
         data = self._load()
         profile = self._profile(data, guild_id, user_id)
         bombs = int(profile.get("bombs", 0))
         if bombs <= 0:
-            return False, 0
-        bombs -= 1
+            return 0, 0
+        spent = min(count, bombs)
+        bombs -= spent
         profile["bombs"] = bombs
         self._save(data)
-        return True, bombs
+        return spent, bombs
 
     def set_nickname(self, guild_id: int | None, user_id: int, nickname: str) -> str:
         nickname = nickname.strip()
