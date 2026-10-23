@@ -149,7 +149,7 @@ class KleeAI:
 
         try:
             text = await self.chat_model.generate(
-                instructions=self._system_prompt(), text=text_prompt,
+                instructions=self._system_prompt() + '\n当前是普通聊天模式，没有执行群管理工具。不得声称已经禁言、创建或删除频道、安排活动、播放音乐。只有执行模块的真实结果才能确认这些操作。', text=text_prompt,
                 image_urls=image_urls, max_tokens=180,
             )
         except Exception as exc:

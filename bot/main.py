@@ -14,6 +14,7 @@ from dotenv import load_dotenv
 
 from .maintenance import is_owner, request_development, request_update, update_status
 from .moderation import Moderation
+from .guild_agent import GuildAgent
 from .fact_memory import FactMemory
 from .conversation import ConversationService, ConversationStore
 from .ai_usage import AiUsageStore
@@ -49,6 +50,7 @@ intents.voice_states = True
 intents.message_content = True
 
 bot = commands.Bot(command_prefix=PREFIX, intents=intents, help_command=None)
+autonomy = None
 resolver = Resolver()
 klee_ai = KleeAI()
 players: dict[int, GuildPlayer] = {}
@@ -288,6 +290,12 @@ async def on_ready() -> None:
 async def on_message(message: discord.Message) -> None:
     if message.author.bot:
         return
+    moderation_handled = False
+    if autonomy is not None:
+        try:
+            moderation_handled = await autonomy.observe(message)
+        except Exception as exc:
+            print(f'agent observation failed: {type(exc).__name__}', flush=True)
 
     if afk_store.clear_afk(message.guild.id if message.guild else None, message.author.id):
         await message.reply("欢迎回来，Klee已经帮你取消 AFK 啦。")
@@ -304,7 +312,7 @@ async def on_message(message: discord.Message) -> None:
             )
             break
 
-    if bot.user and bot.user in message.mentions and not message.content.startswith(PREFIX):
+    if bot.user and bot.user in message.mentions and not message.content.startswith(PREFIX) and not moderation_handled:
         mention_text = message.content
         for mention in (bot.user.mention, f"<@!{bot.user.id}>"):
             mention_text = mention_text.replace(mention, "")
@@ -1491,7 +1499,10 @@ class _ContextInteraction:
 
 
 async def run_bot():
+    global autonomy
     await bot.add_cog(Moderation(bot))
+    autonomy = GuildAgent(bot, klee_ai.chat_model, DATA_DIR, player_factory=get_player)
+    await bot.add_cog(autonomy)
     await bot.start(TOKEN)
 
 

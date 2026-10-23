@@ -45,6 +45,8 @@ class ModerationReceipt:
     minutes: int | None
     reason: str
     until: datetime | None
+    duration_label: str | None = None
+    automated: bool = False
 
     def embed(self):
         embed = discord.Embed(title='🔇 禁言公告' if self.minutes is not None else '🔊 解除禁言公告',
@@ -52,8 +54,11 @@ class ModerationReceipt:
                               timestamp=datetime.now(timezone.utc))
         embed.add_field(name='成员', value=f'<@{self.target_id}> (`{self.target_id}`)', inline=False)
         embed.add_field(name='执行者', value=f'<@{self.actor_id}>', inline=False)
+        if self.automated:
+            embed.title = '🤖 自治禁言公告'
+            embed.set_field_at(1, name='执行者', value=f'Klee Agent（授权者：<@{self.actor_id}>）', inline=False)
         if self.minutes is not None:
-            embed.add_field(name='禁言时长', value=duration_text(self.minutes))
+            embed.add_field(name='禁言时长', value=self.duration_label or duration_text(self.minutes))
             embed.add_field(name='解除时间', value=f'<t:{int(self.until.timestamp())}:F>（<t:{int(self.until.timestamp())}:R>）', inline=False)
         else:
             embed.add_field(name='状态', value='已提前解除禁言')
@@ -62,11 +67,12 @@ class ModerationReceipt:
         return embed
 
     def text(self):
-        state = f'禁言 {duration_text(self.minutes)}，解除时间 <t:{int(self.until.timestamp())}:F>' if self.minutes is not None else '已解除禁言'
-        return f'【Klee 管理公告】\n成员：<@{self.target_id}>\n执行者：<@{self.actor_id}>\n{state}\n原因：{self.reason}'
+        state = f'禁言 {self.duration_label or duration_text(self.minutes)}，解除时间 <t:{int(self.until.timestamp())}:F>' if self.minutes is not None else '已解除禁言'
+        actor = f'Klee Agent（授权者：<@{self.actor_id}>）' if self.automated else f'<@{self.actor_id}>'
+        return f'【Klee 管理公告】\n成员：<@{self.target_id}>\n执行者：{actor}\n{state}\n原因：{self.reason}'
 
 
-async def apply_timeout(guild, actor, target, bot_member, channel, minutes, reason):
+async def apply_timeout(guild, actor, target, bot_member, channel, minutes, reason, *, before_apply=None):
     if guild is None:
         raise ModerationError('请在服务器内使用此指令。')
     if minutes is not None and (type(minutes) is not int or not 1 <= minutes <= 40320):
@@ -88,7 +94,9 @@ async def apply_timeout(guild, actor, target, bot_member, channel, minutes, reas
     until = datetime.now(timezone.utc) + timedelta(minutes=minutes) if minutes is not None else None
     if until is None and not target.is_timed_out():
         raise ModerationError('这位成员当前没有被禁言。')
-    audit_reason = f'Klee manual moderation by {actor.id}: {reason}'
+    audit_reason = f'Klee moderation authorized by {actor.id}: {reason}'
+    if before_apply is not None:
+        await before_apply()
     await target.timeout(until, reason=audit_reason)
     return ModerationReceipt(target.id, actor.id, minutes, reason, until)
 
