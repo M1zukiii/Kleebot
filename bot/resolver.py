@@ -13,6 +13,7 @@ from urllib.error import HTTPError
 
 import yt_dlp
 from yt_dlp.utils import DownloadError
+from .bilibili_compat import install_bilibili_compat
 
 
 class ResolutionError(RuntimeError):
@@ -109,6 +110,7 @@ class Resolver:
             options["cookiefile"] = self.cookies
 
         with yt_dlp.YoutubeDL(options) as ydl:
+            install_bilibili_compat(ydl)
             data = ydl.extract_info(target, download=False)
 
         if data is None:
@@ -151,6 +153,7 @@ class Resolver:
             if is_niconico:
                 return self._resolve_niconico_sync(target, original_query, requester, options)
             with yt_dlp.YoutubeDL(options) as ydl:
+                install_bilibili_compat(ydl)
                 data = ydl.extract_info(target, download=False)
         except DownloadError as exc:
             if is_niconico:
@@ -255,6 +258,7 @@ class Resolver:
         }
 
         with yt_dlp.YoutubeDL(download_options) as ydl:
+            install_bilibili_compat(ydl)
             data = ydl.extract_info(target, download=True)
 
         if data is None:
@@ -680,7 +684,15 @@ class Resolver:
 
     def _normalize_query(self, query: str) -> str:
         query = query.strip()
+        if re.fullmatch(r'BV[0-9A-Za-z]{10}|av\d+', query, re.I):
+            return 'https://www.bilibili.com/video/' + query + '/'
         parsed = urlparse(query)
+        if parsed.hostname in {'www.bilibili.com', 'bilibili.com', 'm.bilibili.com'}:
+            video = re.match(r'^/video/(BV[0-9A-Za-z]{10}|av\d+)(?:/|$)', parsed.path, re.I)
+            if video:
+                target = 'https://www.bilibili.com/video/' + video[1] + '/'
+                part = parse_qs(parsed.query).get('p', [''])[0]
+                return target + ('?p=' + part if part.isdecimal() and int(part) > 0 else '')
         if parsed.hostname == 'search.bilibili.com':
             keyword = parse_qs(parsed.query).get('keyword', [''])[0].strip()
             if not keyword:
