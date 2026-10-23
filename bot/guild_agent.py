@@ -10,7 +10,7 @@ from discord.ext import commands
 from .agent_store import AgentStore
 from .maintenance import is_owner
 from .moderation import ModerationError, apply_timeout, can_moderate, check_members, publish_receipt
-from .mention_router import MentionRouter, is_staff
+from .mention_router import MentionRouter, is_staff, local_music_request
 from .management_agent import ManagementAgent
 from .token_guard import excessive_request
 
@@ -66,7 +66,8 @@ class GuildAgent(commands.Cog):
     async def observe(self, message):
         if message.guild is None or message.author.bot or self.bot.user not in message.mentions:
             return False
-        if not self.chat.enabled:
+        local_query = local_music_request(message.content, self.bot.user.id)
+        if not local_query and not self.chat.enabled:
             return False
         goal = await asyncio.to_thread(self.store.goal, message.guild.id)
         staff = is_staff(message.author)
@@ -82,7 +83,8 @@ class GuildAgent(commands.Cog):
                 await asyncio.to_thread(self.store.save_manager_task, message.guild.id, message.author.id, message.channel.id, task)
                 await message.reply('Klee 已取消这项待补充任务。', allowed_mentions=discord.AllowedMentions.none())
                 return True
-            route = await self.router.classify(message.content, staff, goal=goal['goal'] if goal and goal['enabled'] else '', pending_task=pending)
+            route = ({'route':'music', 'query':local_query} if local_query else
+                     await self.router.classify(message.content, staff, goal=goal['goal'] if goal and goal['enabled'] else '', pending_task=pending))
             if route['route'] == 'music':
                 try:
                     result = await self.management.play_public_music(message, route['query'])

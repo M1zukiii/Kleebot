@@ -200,6 +200,7 @@ class FactMemory:
                 instructions=PLANNER_PROMPT,
                 text=json.dumps({"sender": sender, "mentions": mentions, "known_people": known[:100], "message": message}, ensure_ascii=False),
                 max_tokens=900,
+                purpose='memory',
             )
             plan = json.loads(raw)
             if not isinstance(plan, dict) or not isinstance(plan.get("actions"), list):
