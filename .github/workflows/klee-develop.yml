@@ -32,6 +32,7 @@ jobs:
         env:
           KLEE_DEV_TASK: ${{ inputs.task }}
           DEVELOPER_API_KEY: ${{ secrets.KLEE_DEVELOPER_API_KEY }}
+          DEVELOPER_PROVIDER: ${{ vars.KLEE_DEVELOPER_PROVIDER }}
           DEVELOPER_MODEL: ${{ vars.KLEE_DEVELOPER_MODEL }}
           GH_TOKEN: ${{ github.token }}
         run: python scripts/develop.py

@@ -8,6 +8,7 @@ from urllib.parse import urlparse
 
 from .chat_model import ChatModel, IncompleteReply
 from .model_budget import BASIC_MESSAGE
+from .diagnostics import DiagnosticStore, explanation, scrub
 
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -40,6 +41,7 @@ class GeneratedImage:
 class KleeAI:
     def __init__(self) -> None:
         self.chat_model = ChatModel()
+        self.diagnostics = DiagnosticStore.from_env()
         self.web_search = os.getenv("KLEE_WEB_SEARCH", "true").strip().lower() in {"1", "true", "yes", "on"} and self.chat_model.config.provider == "openai"
         self.api_key = os.getenv("OPENAI_API_KEY")
         self.model = os.getenv("OPENAI_MODEL", "gpt-5.6-luna")
@@ -131,6 +133,7 @@ class KleeAI:
         image_urls: list[str] | None = None,
         context: list[str] | None = None,
         video_metadata: list[str] | None = None,
+        diagnostic_scope=None,
     ) -> str:
         if not self.chat_model.enabled:
             if self.chat_model.budget.state()[0]:
@@ -167,20 +170,20 @@ class KleeAI:
         except Exception as exc:
             if self.chat_model.budget.state()[0]:
                 return BASIC_MESSAGE
+            incident = self.diagnostics.record('聊天/联网',exc,**(diagnostic_scope or {}))
             print(
-                f"klee ai reply failed: {type(exc).__name__}: {exc}; {self.config_summary()}",
+                f"klee ai reply failed: {type(exc).__name__}: {scrub(exc)}; incident={incident}",
                 flush=True,
             )
             cause = getattr(exc, "__cause__", None)
             if cause:
-                print(f"klee ai reply cause: {type(cause).__name__}: {cause}", flush=True)
+                print(f"klee ai reply cause: {type(cause).__name__}: {scrub(cause)}", flush=True)
+            reference = f'（诊断编号：{incident}）'
             if isinstance(exc, IncompleteReply):
-                return "唔，Klee 这次的回答没能生成完整。可以把题目分成几个小问，Klee 一步一步讲给你听。"
+                return "唔，Klee 这次的回答没能生成完整。可以把题目分成几个小问，Klee 一步一步讲给你听。"+reference
             if type(exc).__name__ in {'APITimeoutError', 'TimeoutError'}:
-                return "唔，这次等回复超时了，请稍后再试一次。"
-            if self.web_search:
-                return "唔，Klee 这次没能完成回复，请稍后再试一次。"
-            return FALLBACK_REPLY
+                return "唔，这次等回复超时了，请稍后再试一次。"+reference
+            return '唔，Klee 这次没能完成回复。'+explanation(exc)+reference
 
         if not text:
             return FALLBACK_REPLY

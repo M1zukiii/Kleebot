@@ -73,9 +73,9 @@ class SpamStore:
                 (str(message.id), str(message.guild.id), str(message.author.id), minutes, 'pending', time.time()))
             return bool(cursor.rowcount)
 
-    def finish(self, mid, state):
+    def finish(self, mid, state, stamp=None):
         with self.connect() as db:
-            db.execute('UPDATE penalties SET state=?,stamp=? WHERE message=?', (state, time.time(), str(mid)))
+            db.execute('UPDATE penalties SET state=?,stamp=? WHERE message=?', (state, time.time() if stamp is None else stamp, str(mid)))
 
     def interrupted(self, guild):
         with self.connect() as db:
@@ -153,7 +153,7 @@ class SpamGuard(commands.Cog):
             async def guard():
                 await self.authority(message.guild, policy['version'])
             receipt = await apply_timeout(message.guild, owner, target, bot_member, message.channel, minutes,
-                f'刷屏：{reason}；24小时内第{len(strikes)+1}次，首次60秒作为警告。', before_apply=guard)
+                f'刷屏：{reason}；24小时内第{len(strikes)+1}次，首次60秒作为警告。', before_apply=guard, audit_ref=message.id)
         except Exception as exc:
             known = isinstance(exc, (ModerationError, discord.Forbidden, discord.NotFound))
             await asyncio.to_thread(self.store.finish, message.id, 'rejected' if known else 'uncertain')

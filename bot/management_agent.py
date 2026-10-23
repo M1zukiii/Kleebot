@@ -14,6 +14,7 @@ from .agent_model import ToolModel
 from .mention_router import is_staff
 from .moderation import ModerationError, apply_timeout, publish_receipt
 from .resolver import ResolutionError
+from .diagnostics import DiagnosticStore, explanation
 
 
 PROMPT = '''You are Klee's server-management agent. Carry out ONLY the authenticated manager's current request.
@@ -61,6 +62,7 @@ class ManagementAgent:
         self.store = store
         self.player_factory = player_factory
         self.locks = {}
+        self.diagnostics = DiagnosticStore.from_env()
 
     async def authorize(self, message, permission=None, channel=None):
         guild = message.guild
@@ -211,7 +213,7 @@ class ManagementAgent:
                 raise ModerationError('请在原请求中真正 @要禁言的成员。')
             target = await guild.fetch_member(int(uid))
             minutes = args['minutes'] if name == 'timeout_member' else None
-            receipt = await apply_timeout(guild, actor, target, bot_member, message.channel, minutes, args['reason'])
+            receipt = await apply_timeout(guild, actor, target, bot_member, message.channel, minutes, args['reason'], audit_ref=message.id)
             await publish_receipt(message.channel, bot_member, receipt)
             label = f'已禁言指定成员 {minutes} 分钟' if minutes is not None else '已解除指定成员的禁言'
             return {'ok': True, 'message': label+'，并公开原因'}
@@ -321,19 +323,21 @@ class ManagementAgent:
                             raise ModerationError('请先读取服务器状态。')
                         if key not in cache or call['name'] == 'inspect_server':
                             record = await asyncio.to_thread(self.store.action, message.guild.id, 'manager_'+call['name'],
-                                {'actor': str(message.author.id), 'arguments': args}, 'pending')
+                                {'actor': str(message.author.id), 'channel':str(message.channel.id), 'message':str(message.id), 'arguments': args}, 'pending')
                             try:
                                 cache[key] = await self.execute(message, call['name'], args, created)
                             except Exception as exc:
+                                incident = self.diagnostics.record('管理工具:'+call['name'],exc,guild=message.guild.id,channel=message.channel.id,actor=message.author.id)
+                                reference = f'（诊断编号：{incident}；操作编号：{record}）'
                                 logging.getLogger(__name__).exception('Manager tool failed: guild=%s tool=%s', message.guild.id, call['name'])
-                                cache[key] = {'ok': False, 'error': str(exc) if isinstance(exc, ModerationError) else type(exc).__name__}
+                                cache[key] = {'ok': False, 'error': (str(exc) if isinstance(exc, ModerationError) else explanation(exc))+reference}
                                 await asyncio.to_thread(self.store.finish, record, 'rejected' if isinstance(exc, ModerationError) else 'failed_or_unconfirmed')
                                 if not isinstance(exc, (ModerationError, discord.Forbidden, discord.NotFound)):
                                     uncertain = True
                                     if call['name'] == 'play_music':
-                                        errors.append(f'音乐未能加入播放队列（{type(exc).__name__}），已停止；详细原因已写入本机日志。')
+                                        errors.append('音乐播放结果未确认，已停止后续动作。'+reference)
                                     else:
-                                        errors.append('执行结果未确认，已停止后续动作，请先检查服务器状态。')
+                                        errors.append('执行结果未确认，已停止后续动作，请先检查服务器状态。'+reference)
                                     break
                             else:
                                 await asyncio.to_thread(self.store.finish, record, 'success')

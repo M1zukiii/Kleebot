@@ -122,4 +122,4 @@ class FacadeTests(unittest.IsolatedAsyncioTestCase):
             ai = KleeAI()
             ai.chat_model.generate = AsyncMock(side_effect=RuntimeError("offline"))
             with patch('builtins.print'):
-                self.assertEqual(await ai.reply(user_name="Alice", message="hi"), FALLBACK_REPLY)
+                self.assertIn('诊断编号',await ai.reply(user_name="Alice", message="hi"))

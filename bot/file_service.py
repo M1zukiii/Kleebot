@@ -206,6 +206,8 @@ def build_artifact(spec, extension):
 class FileService:
     def __init__(self, chat):
         self.chat = chat
+        from .diagnostics import DiagnosticStore
+        self.diagnostics = DiagnosticStore.from_env()
         self.documents = OrderedDict()
 
     def document_context(self, scope, request, fresh):
@@ -293,7 +295,8 @@ class FileService:
                 file.close()
         except Exception as exc:
             print(f'file generation failed: {type(exc).__name__}', flush=True)
-            text = BASIC_MESSAGE if self.chat.budget.state()[0] else '这次文件没有生成成功，请缩短内容或换成更简单的格式再试。'
+            incident = self.diagnostics.record('文件生成',exc,guild=getattr(message.guild,'id',None),channel=getattr(getattr(message,'channel',None),'id',None),actor=getattr(getattr(message,'author',None),'id',None))
+            text = BASIC_MESSAGE if self.chat.budget.state()[0] else f'这次文件没有生成成功，请缩短内容或换成更简单的格式再试。（诊断编号：{incident}）'
             await message.reply(text, allowed_mentions=discord.AllowedMentions.none())
         return True
 
@@ -328,7 +331,7 @@ class FileCommands(commands.Cog):
         if await self.service.basic_extract(ctx, context):
             return
         answer = await self.conversations.reply(channel_id=ctx.channel.id, user_id=ctx.author.id,
-            user_name=ctx.author.display_name, message=instruction, document_context=context)
+            user_name=ctx.author.display_name, message=instruction, document_context=context, guild_id=ctx.guild.id if ctx.guild else None)
         from .math_reply import send_math_reply
         await send_math_reply(ctx, answer)
 

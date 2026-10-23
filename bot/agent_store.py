@@ -53,10 +53,10 @@ class AgentStore:
                 (str(message), str(guild), str(member), minutes, 'pending', time.time()))
             return bool(result.rowcount)
 
-    def finish_mention(self, message, state, kind='mention'):
+    def finish_mention(self, message, state, kind='mention', stamp=None):
         table = 'token_penalties' if kind == 'token' else 'mention_penalties'
         with self.connect() as db:
-            db.execute(f'UPDATE {table} SET state=?,stamp=? WHERE message=?', (state, time.time(), str(message)))
+            db.execute(f'UPDATE {table} SET state=?,stamp=? WHERE message=?', (state, time.time() if stamp is None else stamp, str(message)))
 
     def mention_interrupted(self, guild):
         with self.connect() as db:
@@ -121,7 +121,7 @@ class AgentStore:
 
     def recent(self, guild):
         with self.connect() as db:
-            return [dict(row) for row in db.execute('SELECT tool,state,detail,stamp FROM agent_actions WHERE guild=? ORDER BY id DESC LIMIT 5', (str(guild),))]
+            return [dict(row) for row in db.execute('SELECT id,tool,state,detail,stamp FROM agent_actions WHERE guild=? ORDER BY id DESC LIMIT 5', (str(guild),))]
 
     def last_manager_reply(self, guild, actor, channel):
         task = self.manager_task(guild, actor, channel)

@@ -12,10 +12,12 @@ from discord import app_commands
 from discord.ext import commands, tasks
 from dotenv import load_dotenv
 
-from .maintenance import is_owner, request_development, request_update, update_status
+from .maintenance import is_owner, request_development, request_update, update_status, maintenance_check
 from .moderation import Moderation
 from .guild_agent import GuildAgent
 from .spam_guard import SpamGuard
+from .diagnostic_controls import DiagnosticControls
+from .diagnostics import explanation
 from .fact_memory import FactMemory
 from .conversation import ConversationService, ConversationStore
 from .ai_usage import AiUsageStore
@@ -267,6 +269,9 @@ async def health_heartbeat() -> None:
 
 @bot.event
 async def on_ready() -> None:
+    pairs = [(c.id,g.id) for g in bot.guilds for c in [*g.channels,*g.threads]]
+    if conversations.memory:
+        await asyncio.to_thread(conversations.memory.map_channels,pairs)
     Path(os.getenv("KLEE_READY_FILE") or (Path(tempfile.gettempdir()) / "kleebot-ready")).write_text(str(time.time()), encoding="utf-8")
     if not health_heartbeat.is_running():
         health_heartbeat.start()
@@ -359,6 +364,7 @@ async def on_message(message: discord.Message) -> None:
             await bot.process_commands(message)
             return
         reply = await conversations.reply(
+            guild_id=message.guild.id if message.guild else None,
             document_context=document_context,
             task_receipt=await asyncio.to_thread(autonomy.store.last_manager_reply, message.guild.id, message.author.id, message.channel.id) if autonomy is not None and message.guild else '',
             channel_id=message.channel.id,
@@ -388,9 +394,15 @@ async def clear_global_commands() -> None:
 
 @bot.tree.error
 async def on_app_command_error(interaction: discord.Interaction, error: app_commands.AppCommandError) -> None:
-    print(f"slash command error in {interaction.command}: {error}", flush=True)
-    if not await respond(interaction, f"Command failed: {error}"):
+    if not await respond(interaction, failure_receipt('指令',interaction,getattr(error,'original',error))):
         print("failed to report slash error: interaction is no longer available", flush=True)
+
+
+def failure_receipt(category,context,error):
+    actor = getattr(context,'user',None) or getattr(context,'author',None)
+    incident = klee_ai.diagnostics.record(category,error,guild=getattr(context.guild,'id',None),
+        channel=getattr(context.channel,'id',None),actor=getattr(actor,'id',None))
+    return explanation(error)+f'（诊断编号：{incident}）'
 
 
 async def handle_play(interaction: discord.Interaction, query: str) -> None:
@@ -404,7 +416,8 @@ async def handle_play(interaction: discord.Interaction, query: str) -> None:
         prefix = "Queued Spotify match via YouTube audio" if is_spotify_track_url(query) else "Queued"
         await respond(interaction, f"{prefix}: [{track.title}]({track.webpage_url})")
     except Exception as exc:
-        await respond(interaction, f"Could not play that: {exc}")
+        incident = klee_ai.diagnostics.record('点播',exc,guild=getattr(interaction.guild,'id',None),channel=getattr(interaction.channel,'id',None),actor=interaction.user.id)
+        await respond(interaction, explanation(exc)+f'（诊断编号：{incident}）')
 
 
 async def handle_playlist(interaction: discord.Interaction, query: str) -> None:
@@ -421,7 +434,7 @@ async def handle_playlist(interaction: discord.Interaction, query: str) -> None:
             f"Queued {len(tracks)} track(s) from playlist. First: [{first.title}]({first.webpage_url})",
         )
     except Exception as exc:
-        await respond(interaction, f"Could not queue that playlist: {exc}")
+        await respond(interaction, failure_receipt('播放列表',interaction,exc))
 
 
 async def handle_skip(interaction: discord.Interaction) -> None:
@@ -455,7 +468,7 @@ async def handle_join(interaction: discord.Interaction) -> None:
     try:
         voice_client = await get_player(interaction.guild).ensure_voice(interaction)
     except Exception as exc:
-        await respond(interaction, f"Could not join voice channel: {exc}")
+        await respond(interaction, failure_receipt('加入语音',interaction,exc))
         return
     await respond(interaction, f"Joined {voice_client.channel.mention}.")
 
@@ -1176,7 +1189,7 @@ async def prefix_play(ctx: commands.Context, *, query: str) -> None:
         prefix = "Queued Spotify match via YouTube audio" if is_spotify_track_url(query) else "Queued"
         await message.edit(content=f"{prefix}: {track.title}\n{track.webpage_url}")
     except Exception as exc:
-        await message.edit(content=f"Could not play that: {exc}")
+        await message.edit(content=failure_receipt('点播',ctx,exc))
 
 
 @bot.command(name="playlist", aliases=["playalbum", "album", "专辑", "歌单", "列表"])
@@ -1191,7 +1204,7 @@ async def prefix_playlist(ctx: commands.Context, *, query: str) -> None:
         first = tracks[0]
         await message.edit(content=f"Queued {len(tracks)} track(s). First: {first.title}\n{first.webpage_url}")
     except Exception as exc:
-        await message.edit(content=f"Could not queue that playlist: {exc}")
+        await message.edit(content=failure_receipt('播放列表',ctx,exc))
 
 
 @bot.command(name="skip", aliases=["s"])
@@ -1220,7 +1233,7 @@ async def prefix_join(ctx: commands.Context) -> None:
     try:
         voice_client = await get_player(ctx.guild).ensure_voice(_ContextInteraction(ctx))
     except Exception as exc:
-        await ctx.send(f"Could not join voice channel: {exc}")
+        await ctx.send(failure_receipt('加入语音',ctx,exc))
         return
     await ctx.send(f"Joined {voice_client.channel.mention}.")
 
@@ -1407,7 +1420,15 @@ async def prefix_update_status(ctx: commands.Context) -> None:
     await ctx.send(update_status(DATA_DIR), allowed_mentions=discord.AllowedMentions.none())
 
 
-@bot.hybrid_command(name="清除聊天", aliases=["forgetchat"], description="清除本频道的近期聊天和人物记忆，需要管理消息权限。")
+@bot.hybrid_command(name='自维护检查', description='检查更新守护和开发任务配置（仅所有者）。')
+async def prefix_maintenance_check(ctx: commands.Context) -> None:
+    if not is_owner(ctx.author.id):
+        await ctx.send('这个指令只开放给配置的主人。',ephemeral=True)
+        return
+    await ctx.send(maintenance_check(DATA_DIR),ephemeral=True,allowed_mentions=discord.AllowedMentions.none())
+
+
+@bot.hybrid_command(name="清除聊天", aliases=["forgetchat"], description="清除本频道近期聊天与文件缓存；共享个人记忆请本人要求忘掉。")
 async def prefix_forgetchat(ctx: commands.Context) -> None:
     if ctx.guild and not ctx.channel.permissions_for(ctx.author).manage_messages:
         await ctx.send("清除频道聊天记录需要管理消息权限。")
@@ -1416,7 +1437,7 @@ async def prefix_forgetchat(ctx: commands.Context) -> None:
         await ctx.defer(ephemeral=True)
     await conversations.clear(ctx.channel.id)
     file_service.clear_context(ctx.channel.id)
-    await ctx.send("Klee 已清除这个频道的聊天记录和独立人物记忆。")
+    await ctx.send("Klee 已清除这个频道的近期聊天和文件缓存。服务器共享的个人记忆保留，请本人明确说要忘掉哪一项。")
 
 
 @bot.command(name="help")
@@ -1540,6 +1561,7 @@ async def run_bot():
     await bot.add_cog(FileCommands(file_service, conversations))
     autonomy = GuildAgent(bot, klee_ai.chat_model, DATA_DIR, player_factory=get_player)
     await bot.add_cog(autonomy)
+    await bot.add_cog(DiagnosticControls(bot,klee_ai.diagnostics,autonomy,spam_guard))
     await bot.start(TOKEN)
 
 
