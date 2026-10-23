@@ -176,14 +176,15 @@ deployment**. These features do not run until that setup is completed.
 ## Identity-bound fact memory
 
 Klee resolves real Discord mentions to account IDs and keeps factual preferences
-as separate (channel ID, user ID, key) rows. Food ranks use food.favorite.1,
+as separate (guild scope, user ID, key) rows; DMs remain isolated. Food ranks use food.favorite.1,
 food.favorite.2, etc. Recent chat and facts are separate; facts survive beyond the
 recent-message limit. Other users can query a public preference in the same
-channel, but only the subject can change/delete it. There is no automatic admin
+server, but only the subject can change/delete it. There is no automatic admin
 override for conversational edits. Nicknames must match an unambiguous known
 Discord alias; use a real @mention when uncertain.
 
-Natural-language interpretation uses one additional bounded chat-model call on
+Complete food disclosures and queries use a deterministic local parser, including
+multiple ranks in one message. Other natural-language interpretation uses one bounded chat-model call on
 likely preference/memory requests. The model proposes operations; Python resolves
 identities, checks permissions and validates exact values before committing them.
 Invalid/ambiguous plans do not change data. Preference-query answers come directly
@@ -191,10 +192,28 @@ from stored facts. This initial version targets explicit preferences, especially
 ranked foods; it is not general autonomous learning or a complete semantic parser.
 
 Deleting a fact removes its value (only a key tombstone may remain). To prevent
-old dialogue from reintroducing it, deletion also clears this channel's bounded
+old dialogue from reintroducing it, deletion also clears the server's bounded
 recent conversation cache. Other users' independent facts and the subject's
 other fact keys stay intact. Full deletion removes all the subject's fact rows.
-The existing privileged !forgetchat command clears both recent history and facts
-for the entire channel. Facts are scoped per channel/DM, not shared across servers
-or channels. Existing raw conversations are not automatically imported: have each
-person explicitly restate the facts they want stored after upgrading.
+The privileged /清除聊天 command clears channel history and file cache; shared
+personal facts require a request from their subject. Old mapped channel facts
+are migrated within the same guild. Conflicting values require the subject to
+confirm them again. Different servers and DMs never share personal memory.
+
+## Diagnostics and maintenance readiness
+
+Failures include a short diagnostic reference. /诊断 lets server managers inspect
+scoped recent errors privately; credentials are redacted, records expire after
+30 days and are capped at 500. /核对操作 uses uniquely correlated bot audit-log
+entries to confirm uncertain management or timeout results without replaying
+Discord operations. It requires native audit-log permission. Music has no such
+audit receipt and is never guessed as successful. Automatic checks can resume
+only after outstanding uncertain penalties have been reconciled.
+
+The owner-only /自维护检查 reports local updater and dispatch configuration.
+Code repair requires KLEE_GITHUB_ACTIONS_TOKEN locally (repository Actions write)
+and the GitHub Actions secret KLEE_DEVELOPER_API_KEY. Set repository variable
+KLEE_DEVELOPER_PROVIDER to openai (default) or deepseek, and optionally set
+KLEE_DEVELOPER_MODEL. Repair selects bounded relevant tracked source files and
+creates a draft PR; validation remains in a separate job without model secrets.
+The bot cannot verify remote secret configuration or grant itself credentials.

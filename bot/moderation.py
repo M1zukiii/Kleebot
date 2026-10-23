@@ -72,7 +72,7 @@ class ModerationReceipt:
         return f'【Klee 管理公告】\n成员：<@{self.target_id}>\n执行者：{actor}\n{state}\n原因：{self.reason}'
 
 
-async def apply_timeout(guild, actor, target, bot_member, channel, minutes, reason, *, before_apply=None):
+async def apply_timeout(guild, actor, target, bot_member, channel, minutes, reason, *, before_apply=None, audit_ref=None):
     if guild is None:
         raise ModerationError('请在服务器内使用此指令。')
     if minutes is not None and (type(minutes) is not int or not 1 <= minutes <= 40320):
@@ -95,6 +95,8 @@ async def apply_timeout(guild, actor, target, bot_member, channel, minutes, reas
     if until is None and not target.is_timed_out():
         raise ModerationError('这位成员当前没有被禁言。')
     audit_reason = f'Klee moderation authorized by {actor.id}: {reason}'
+    if audit_ref is not None:
+        audit_reason += f' ref={audit_ref}'
     if before_apply is not None:
         await before_apply()
     await target.timeout(until, reason=audit_reason)

@@ -13,6 +13,7 @@ from .moderation import ModerationError, apply_timeout, can_moderate, check_memb
 from .mention_router import MentionRouter, is_staff, local_music_request
 from .management_agent import ManagementAgent
 from .token_guard import excessive_request
+from .diagnostics import DiagnosticStore, explanation
 
 
 DEFAULT_GOAL = '只检查真正 @Klee 的发言，识别明确定向辱骂（包括对Klee的辱骂）、恶意骚扰和仇恨攻击。普通聊天、玩笑、不同意见和引用不处罚。首次禁言60秒作为警告；24小时内再犯依次5分钟、15分钟、60分钟，上限60分钟。'
@@ -33,6 +34,7 @@ class GuildAgent(commands.Cog):
         self.management = ManagementAgent(bot, chat_model, self.store, player_factory)
         self.locks = {}
         self.failures = {}
+        self.diagnostics = DiagnosticStore.from_env()
 
     async def guard_tokens(self, message):
         if (message.guild is None or message.author.bot or self.bot.user not in message.mentions
@@ -90,7 +92,8 @@ class GuildAgent(commands.Cog):
                     result = await self.management.play_public_music(message, route['query'])
                     text = result['message']
                 except Exception as exc:
-                    text = str(exc) if isinstance(exc, ModerationError) else f'播放未能完成（{type(exc).__name__}），请稍后重试。'
+                    incident = self.diagnostics.record('点播',exc,guild=message.guild.id,channel=message.channel.id,actor=message.author.id)
+                    text = (str(exc) if isinstance(exc, ModerationError) else explanation(exc))+f'（诊断编号：{incident}）'
                 await asyncio.to_thread(self.store.save_manager_task, message.guild.id, message.author.id, message.channel.id,
                     {'sources':[{'id':str(message.id),'content':message.content}], 'state':'closed',
                      'request':message.content[:4000], 'reply':text[:1800]})
@@ -105,7 +108,8 @@ class GuildAgent(commands.Cog):
                         return await self.management.run(message, resume=task['sources'][-1]['id'])
                     return await self.management.run(message)
                 except Exception as exc:
-                    detail = str(exc) if isinstance(exc, ModerationError) else f'管理任务中断（{type(exc).__name__}），请先检查实际状态。'
+                    incident = self.diagnostics.record('管理任务',exc,guild=message.guild.id,channel=message.channel.id,actor=message.author.id)
+                    detail = (str(exc) if isinstance(exc, ModerationError) else explanation(exc))+f'（诊断编号：{incident}）'
                     await message.reply(detail[:1000],
                                         allowed_mentions=discord.AllowedMentions.none())
                     return True
@@ -229,7 +233,7 @@ class GuildAgent(commands.Cog):
                 label = (f'{"超量输出请求（已先警告）" if kind == "token" else "提及骚扰"}：24小时内第{len(strikes)+1}次；'
                          if escalating else '自治：三次警告后仍继续违规；')
                 receipt = await apply_timeout(guild, owner, target, bot_member, channel, minutes,
-                                              label + reason, before_apply=guard)
+                                              label + reason, before_apply=guard, audit_ref=message.id)
                 confirmed = True
                 receipt.duration_label = '60秒' if minutes == 1 else f'{minutes}分钟'
                 receipt.automated = True
