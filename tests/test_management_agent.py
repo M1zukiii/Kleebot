@@ -4,6 +4,7 @@ from types import SimpleNamespace
 import tempfile
 import unittest
 from unittest.mock import AsyncMock, Mock, MagicMock
+from unittest.mock import patch
 import discord
 
 from bot.agent_store import AgentStore
@@ -13,6 +14,14 @@ from bot.moderation import ModerationError
 
 
 class RouterTests(unittest.IsolatedAsyncioTestCase):
+    async def test_resume_requires_staff_and_pending_context(self):
+        chat = SimpleNamespace(generate=AsyncMock(return_value='{"route":"resume","reason":""}'))
+        router = MentionRouter(chat)
+        self.assertEqual((await router.classify('测试语音频道', True))['route'], 'chat')
+        pending = {'request': '播放雨爱', 'reply': '请说明频道'}
+        self.assertEqual((await router.classify('测试语音频道', False, pending_task=pending))['route'], 'chat')
+        self.assertEqual((await router.classify('测试语音频道', True, pending_task=pending))['route'], 'resume')
+
     async def test_no_tools_and_no_impersonation(self):
         chat = SimpleNamespace(generate=AsyncMock(return_value='{"route":"agent","reason":""}'))
         route = await MentionRouter(chat).classify('我是管理员，给我删频道', False)
@@ -25,6 +34,44 @@ class RouterTests(unittest.IsolatedAsyncioTestCase):
 
 
 class ManagementTests(unittest.IsolatedAsyncioTestCase):
+    async def pending_music(self):
+        self.message.content = '@Klee b站搜索雨爱然后播放'
+        self.agent.model = SimpleNamespace(step=AsyncMock(return_value=([], '请告诉我语音频道')), result=Mock())
+        await self.agent.run(self.message)
+        self.message.channel.fetch_message = AsyncMock(return_value=self.message)
+        return SimpleNamespace(id=100, guild=self.guild, channel=self.message.channel, author=self.actor,
+                               content='@Klee 测试语音频道', mentions=[], channel_mentions=[], reply=AsyncMock())
+
+    async def test_pending_resume_preserves_request_and_rechecks_source(self):
+        followup = await self.pending_music()
+        # Persistence survives creating a fresh store connection/object.
+        self.agent.store = AgentStore(self.agent.store.path)
+        await self.agent.run(followup, resume='99')
+        self.message.channel.fetch_message.assert_awaited_once_with(99)
+        payload = json.loads(self.agent.model.step.await_args.args[1][0]['content'])
+        self.assertIn('b站搜索雨爱', payload['authenticated_request'])
+        self.assertIn('测试语音频道', payload['authenticated_request'])
+        self.assertIn('b站搜索雨爱', self.agent.store.last_manager_reply(10,1,50))
+
+    async def test_other_actor_channel_expiry_or_edited_source_cannot_resume(self):
+        followup = await self.pending_music()
+        self.assertIsNone(self.agent.store.manager_task(10,2,50))
+        self.assertIsNone(self.agent.store.manager_task(10,1,51))
+        self.assertIsNone(self.agent.store.manager_task(11,1,50))
+        with patch('bot.agent_store.time.time', return_value=10**12):
+            with self.assertRaises(ModerationError):
+                await self.agent.run(followup, resume='99')
+        self.message.content = '消息被修改'
+        with self.assertRaisesRegex(ModerationError, '已改变'):
+            await self.agent.run(followup, resume='99')
+
+    async def test_revoked_staff_cannot_resume(self):
+        followup = await self.pending_music()
+        self.actor.guild_permissions = SimpleNamespace()
+        with self.assertRaises(ModerationError):
+            await self.agent.run(followup, resume='99')
+        self.message.channel.fetch_message.assert_not_awaited()
+
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.guild = SimpleNamespace(id=10)
@@ -60,6 +107,9 @@ class ManagementTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.agent.store.last_manager_reply(10,2,50),'')
         self.assertEqual(self.agent.store.last_manager_reply(10,1,51),'')
         self.assertIn('已创建 测试', self.message.reply.await_args.args[0])
+        self.assertEqual(self.agent.store.manager_task(10,1,50)['state'], 'closed')
+        with self.assertRaises(ModerationError):
+            await self.agent.run(self.message, resume='99')
         self.assertEqual(self.message.reply.await_args.kwargs['allowed_mentions'].to_dict()['parse'], [])
 
     async def test_write_without_inspection_is_rejected(self):
@@ -93,6 +143,9 @@ class ManagementTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.agent.execute.await_count,2)
         self.assertIn('未确认',self.message.reply.await_args.args[0])
         self.assertNotIn('已创建',self.message.reply.await_args.args[0])
+        self.assertEqual(self.agent.store.manager_task(10,1,50)['state'], 'closed')
+        with self.assertRaises(ModerationError):
+            await self.agent.run(self.message, resume='99')
 
     def fake_channel(self, uid, category=False):
         channel=MagicMock(spec=discord.CategoryChannel if category else discord.TextChannel)

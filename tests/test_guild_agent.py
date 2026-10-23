@@ -94,6 +94,34 @@ class GuildAgentTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(await self.agent.observe(self.message))
         self.agent.management.run.assert_awaited_once_with(self.message)
 
+    def pending_task(self):
+        self.message.author = self.owner
+        self.message.reply = AsyncMock()
+        self.agent.store.save_manager_task(10,1,50, {'state':'pending', 'request':'b站播放雨爱',
+            'reply':'请说明频道', 'sources':[{'id':'399','content':'b站播放雨爱'}]})
+
+    async def test_staff_followup_routes_pending_request(self):
+        self.pending_task()
+        self.message.content = '<@3> 测试语音频道'
+        self.agent.router.classify.return_value = {'route':'resume','reason':''}
+        self.assertTrue(await self.agent.observe(self.message))
+        self.agent.management.run.assert_awaited_once_with(self.message, resume='399')
+        self.assertEqual(self.agent.router.classify.await_args.kwargs['pending_task']['request'], 'b站播放雨爱')
+
+    async def test_status_question_does_not_execute_pending_task(self):
+        self.pending_task()
+        self.message.content = '<@3> 为什么失败'
+        self.assertFalse(await self.agent.observe(self.message))
+        self.agent.management.run.assert_not_awaited()
+
+    async def test_cancel_closes_pending_task_without_model_or_agent(self):
+        self.pending_task()
+        self.message.content = '<@3> 取消任务'
+        self.assertTrue(await self.agent.observe(self.message))
+        self.assertEqual(self.agent.store.manager_task(10,1,50)['state'], 'closed')
+        self.agent.router.classify.assert_not_awaited()
+        self.agent.management.run.assert_not_awaited()
+
     async def test_executor_rejects_unmentioned_evidence(self):
         self.message.mentions = []
         with self.assertRaisesRegex(ModerationError, '@Klee'):

@@ -1,5 +1,6 @@
 """Mention classification and rule execution; staff tasks use a separate agent."""
 import asyncio
+import re
 import time
 
 import discord
@@ -44,12 +45,23 @@ class GuildAgent(commands.Cog):
         if message.content.startswith(str(self.bot.command_prefix)):
             return False
         try:
-            route = await self.router.classify(message.content, staff, goal=goal['goal'] if goal and goal['enabled'] else '')
-            if route['route'] == 'agent' and staff:
+            task = await asyncio.to_thread(self.store.manager_task, message.guild.id, message.author.id, message.channel.id) if staff else None
+            pending = {'request': task['request'], 'reply': task['reply']} if task and task.get('state') == 'pending' else None
+            plain = re.sub(r'<@!?'+str(self.bot.user.id)+r'>', '', message.content).strip(' ，。！!')
+            if pending and re.fullmatch(r'取消(?:任务|刚才的任务)?|不用了|别执行了|停止任务', plain):
+                task['state'] = 'closed'
+                await asyncio.to_thread(self.store.save_manager_task, message.guild.id, message.author.id, message.channel.id, task)
+                await message.reply('Klee 已取消这项待补充任务。', allowed_mentions=discord.AllowedMentions.none())
+                return True
+            route = await self.router.classify(message.content, staff, goal=goal['goal'] if goal and goal['enabled'] else '', pending_task=pending)
+            if route['route'] in {'agent', 'resume'} and staff and (route['route'] != 'resume' or pending):
                 try:
+                    if route['route'] == 'resume':
+                        return await self.management.run(message, resume=task['sources'][-1]['id'])
                     return await self.management.run(message)
                 except Exception as exc:
-                    await message.reply(f'管理任务中断（{type(exc).__name__}），请先检查实际状态；不会声称操作已完成。',
+                    detail = str(exc) if isinstance(exc, ModerationError) else f'管理任务中断（{type(exc).__name__}），请先检查实际状态。'
+                    await message.reply(detail[:1000],
                                         allowed_mentions=discord.AllowedMentions.none())
                     return True
             if route['route'] != 'warn' or not goal or not goal['enabled']:
