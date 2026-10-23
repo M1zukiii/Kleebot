@@ -77,11 +77,54 @@ class GuildAgentTests(unittest.IsolatedAsyncioTestCase):
         self.agent.management.run.assert_not_awaited()
         self.assertEqual(self.agent.store.observations(10), [])
 
-    async def test_inappropriate_mention_warns_without_agent(self):
+    async def test_inappropriate_mention_directly_times_out_without_agent(self):
         self.agent.router.classify.return_value = {'route': 'warn', 'reason': '直接辱骂'}
         self.assertTrue(await self.agent.observe(self.message))
         self.channel.send.assert_awaited_once()
         self.agent.management.run.assert_not_awaited()
+        self.target.timeout.assert_awaited_once()
+        self.assertEqual(self.agent.store.mention_strikes(10,2)[0]['minutes'],1)
+        self.assertEqual(self.agent.store.warnings(10,2),[])
+
+    async def test_mention_escalates_persists_caps_and_expires(self):
+        for count, expected in ((0,1),(1,5),(2,15),(3,60),(5,60)):
+            with self.agent.store.connect() as db:
+                db.execute('DELETE FROM mention_penalties')
+            for n in range(count):
+                self.agent.store.reserve_mention(10,2,900+n,1)
+                self.agent.store.finish_mention(900+n,'applied')
+            with self.agent.store.connect() as db:
+                db.execute('UPDATE mention_penalties SET stamp=?', (time.time()-100,))
+            self.agent.store=AgentStore(self.agent.store.path)
+            result=await self.agent.execute(self.guild,1,'harassment_timeout',self.args,{'400':{'content':self.message.content}})
+            self.assertEqual(result['timeout_seconds'],expected*60)
+        with self.agent.store.connect() as db:
+            db.execute('UPDATE mention_penalties SET stamp=?', (time.time()-86401,))
+        self.assertEqual(self.agent.store.mention_strikes(10,2),[])
+
+    async def test_harassment_requires_actual_mention_and_unchanged_full_content(self):
+        self.message.content='a'*750+'original'
+        with self.assertRaisesRegex(ModerationError,'修改'):
+            await self.agent.execute(self.guild,1,'harassment_timeout',self.args,{'400':{'content':'a'*750+'edited'}})
+        self.message.mentions=[]
+        with self.assertRaisesRegex(ModerationError,'@Klee'):
+            await self.agent.execute(self.guild,1,'harassment_timeout',self.args,{'400':{'content':self.message.content}})
+        self.target.timeout.assert_not_awaited()
+
+    async def test_harassment_does_not_replay_or_reuse_prior_messages(self):
+        await self.agent.execute(self.guild,1,'harassment_timeout',self.args,{'400':{'content':self.message.content}})
+        with self.assertRaisesRegex(ModerationError,'不重复'):
+            await self.agent.execute(self.guild,1,'harassment_timeout',self.args,{'400':{'content':self.message.content}})
+        self.target.timeout.assert_awaited_once()
+
+    async def test_uncertain_harassment_timeout_pauses_and_survives_restart(self):
+        self.target.timeout.side_effect=TimeoutError()
+        with self.assertRaises(TimeoutError):
+            await self.agent.execute(self.guild,1,'harassment_timeout',self.args,{'400':{'content':self.message.content}})
+        reopened=AgentStore(self.agent.store.path)
+        self.assertTrue(reopened.mention_interrupted(10))
+        self.assertFalse(reopened.goal(10)['enabled'])
+        self.assertEqual(reopened.mention_strikes(10,2),[])
 
     async def test_nonstaff_cannot_invoke_agent_even_if_router_requests_it(self):
         self.agent.router.classify.return_value = {'route': 'agent', 'reason': ''}

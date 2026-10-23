@@ -15,6 +15,7 @@ class AgentStore:
             db.execute('CREATE TABLE IF NOT EXISTS warnings (guild TEXT, member TEXT, message TEXT UNIQUE, channel TEXT, stamp REAL, consumed INTEGER DEFAULT 0)')
             db.execute('CREATE TABLE IF NOT EXISTS agent_actions (id INTEGER PRIMARY KEY AUTOINCREMENT, guild TEXT, tool TEXT, detail TEXT, state TEXT, stamp REAL)')
             db.execute('CREATE TABLE IF NOT EXISTS manager_tasks (guild TEXT, channel TEXT, actor TEXT, detail TEXT, stamp REAL, PRIMARY KEY(guild,channel,actor))')
+            db.execute('CREATE TABLE IF NOT EXISTS mention_penalties (message TEXT PRIMARY KEY, guild TEXT, member TEXT, minutes INTEGER, state TEXT, stamp REAL)')
 
     @contextmanager
     def connect(self):
@@ -35,6 +36,26 @@ class AgentStore:
         with self.connect() as db:
             row = db.execute('SELECT * FROM goals WHERE guild=?', (str(guild),)).fetchone()
         return dict(row) if row else None
+
+    def mention_strikes(self, guild, member):
+        with self.connect() as db:
+            return [dict(row) for row in db.execute("SELECT minutes,stamp FROM mention_penalties WHERE guild=? AND member=? AND state='applied' AND stamp>? ORDER BY stamp",
+                (str(guild), str(member), time.time()-86400))]
+
+    def reserve_mention(self, guild, member, message, minutes):
+        with self.connect() as db:
+            db.execute('DELETE FROM mention_penalties WHERE stamp<?', (time.time()-7*86400,))
+            result = db.execute('INSERT OR IGNORE INTO mention_penalties VALUES(?,?,?,?,?,?)',
+                (str(message), str(guild), str(member), minutes, 'pending', time.time()))
+            return bool(result.rowcount)
+
+    def finish_mention(self, message, state):
+        with self.connect() as db:
+            db.execute('UPDATE mention_penalties SET state=?,stamp=? WHERE message=?', (state, time.time(), str(message)))
+
+    def mention_interrupted(self, guild):
+        with self.connect() as db:
+            return bool(db.execute("SELECT 1 FROM mention_penalties WHERE guild=? AND state IN ('pending','uncertain') LIMIT 1", (str(guild),)).fetchone())
 
     def goals(self):
         with self.connect() as db:
