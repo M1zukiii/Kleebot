@@ -11,6 +11,8 @@ from discord.ext import commands
 
 
 _LOCK = Lock()
+_BARE_COMMAND = r'\\(?:alpha|beta|gamma|delta|theta|lambda|mu|sigma|omega|Delta|Gamma|Sigma|Omega|frac|dfrac|tfrac|sqrt|sum|int|prod|lim|mathrm|mathbf|mathit|left|pi|infty)(?![A-Za-z])'
+_BARE = r'(?<![A-Za-z0-9_\\:/])' + _BARE_COMMAND + r'[A-Za-z0-9\\{}_^=+\-*/()\[\].,|:; \t<>!]*'
 _TOKENS = re.compile(
     r'(?P<link>\[[^\]\n]*\]\([^\n]*?\))|(?P<url>https?://[^\s<>]+)|'
     r'(?P<fence>```(?P<lang>[^\n`]*)\n(?P<code>.*?)```)|'
@@ -18,7 +20,8 @@ _TOKENS = re.compile(
     r'(?P<display>\$\$(?P<display_body>.*?)\$\$)|'
     r'(?P<bracket>\\\[(?P<bracket_body>.*?)\\\])|'
     r'(?P<paren>\\\((?P<paren_body>.*?)\\\))|'
-    r'(?P<dollar>(?<![\\$])\$(?!\$)(?P<dollar_body>[^$\n]+?)(?<!\\)\$(?!\$))',
+    r'(?P<dollar>(?<![\\$])\$(?!\$)(?P<dollar_body>[^$\n]+?)(?<!\\)\$(?!\$))|'
+    r'(?P<bare>' + _BARE + r')',
     re.S,
 )
 _SYMBOLS = {'pi': 'π', 'alpha': 'α', 'beta': 'β', 'theta': 'θ', 'Delta': 'Δ',
@@ -78,12 +81,20 @@ def format_math_reply(text, *, can_attach=True):
 
     def convert(match):
         nonlocal fallback
-        if match['inline_code'] or match['link'] or match['url']:
+        suffix = ''
+        if match['link'] or match['url']:
             return match[0]
-        if match['fence']:
+        if match['inline_code']:
+            expression = match[0][1:-1].strip()
+            if not re.fullmatch(_BARE, expression):
+                return match[0]
+        elif match['fence']:
             if match['lang'].strip().lower() not in {'math', 'latex', 'tex'}:
                 return match[0]
             expression = match['code'].strip()
+        elif match['bare']:
+            expression = match['bare'].rstrip(' \t.,;:')
+            suffix = match['bare'][len(expression):]
         else:
             expression = next(match[name] for name in ('display_body', 'bracket_body', 'paren_body', 'dollar_body') if match[name] is not None).strip()
         # Avoid treating currency amounts as inline formulas.
@@ -91,16 +102,16 @@ def format_math_reply(text, *, can_attach=True):
             return match[0]
         simple = simple_formula(expression)
         if simple is not None:
-            return simple
+            return simple + suffix
         if can_attach and len(images) < 4:
             try:
                 images.append(render_formula(expression))
-                return f'【公式 {len(images)}，见附图】'
+                return f'【公式 {len(images)}，见附图】' + suffix
             except Exception as exc:
                 print(f'formula render fallback: {type(exc).__name__}', flush=True)
         fallback = True
         # Keep unsupported or excess formulas intact and copyable.
-        return '\n```latex\n' + expression.replace('```', '` ` `') + '\n```\n'
+        return '\n```latex\n' + expression.replace('```', '` ` `') + '\n```\n' + suffix
 
     formatted = _TOKENS.sub(convert, text)
     if fallback:

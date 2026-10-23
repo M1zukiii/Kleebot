@@ -9,6 +9,20 @@ from bot.math_reply import format_math_reply, render_formula, send_math_reply
 
 
 class MathTests(unittest.IsolatedAsyncioTestCase):
+    def test_bare_acid_dissociation_formula_and_inline_code_are_rendered(self):
+        expression = r'\alpha_{\mathrm{A^-}}=\frac{K_a}{K_a+[\mathrm{H^+}]}'
+        for source in (expression, '`' + expression + '`', '解离分数：' + expression + '。这表示酸根的比例。'):
+            with self.subTest(source=source):
+                result = format_math_reply(source)
+                self.assertEqual(len(result.images), 1)
+                self.assertNotIn('\\frac', result.text)
+        result = format_math_reply('解离分数：' + expression + '。这表示酸根的比例。')
+        self.assertIn('。这表示酸根的比例。', result.text)
+
+    def test_bare_formula_detection_preserves_code_links_and_windows_paths(self):
+        for source in ('```python\nformula = r"\\frac{1}{2}"\n```', r'https://example.org/\alpha', r'C:\alpha\test.txt'):
+            self.assertEqual(format_math_reply(source).text, source)
+
     def test_simple_formula_keeps_readable_unicode_and_no_image(self):
         result = format_math_reply(r'圆的方程：\(x^{2}+y^{2}=r^{2}\)，\(\pi\approx 3.14\)。')
         self.assertIn('x²+y²=r²', result.text)
