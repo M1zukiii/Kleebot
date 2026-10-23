@@ -108,7 +108,7 @@ def generate_proposal(prompt):
     key = os.environ['DEVELOPER_API_KEY']
     if provider == 'openai':
         response = request_json('https://api.openai.com/v1/responses',key,{
-            'model':model or 'gpt-5.6-luna','instructions':instructions,
+            'model':model or 'gpt-6-luna','instructions':instructions,
             'input':json.dumps(prompt,ensure_ascii=False),'max_output_tokens':16000,'store':False,
             'text':{'format':{'type':'json_object'}}})
         if response.get('status') != 'completed':

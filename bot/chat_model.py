@@ -32,7 +32,7 @@ class ChatConfig:
         deepseek = provider == "deepseek"
         prefix = "DEEPSEEK" if deepseek else "OPENAI"
         key = os.getenv("CHAT_API_KEY") or os.getenv(f"{prefix}_API_KEY", "")
-        model = os.getenv("CHAT_MODEL") or ("deepseek-flash" if deepseek else os.getenv("OPENAI_MODEL", "gpt-5.6-luna"))
+        model = os.getenv("CHAT_MODEL") or ("deepseek-flash" if deepseek else os.getenv("OPENAI_MODEL", "gpt-6-luna"))
         base = os.getenv("CHAT_BASE_URL") or ("https://api.deepseek.com" if deepseek else os.getenv("OPENAI_BASE_URL"))
         if base:
             base = base.strip().rstrip("/") or None
@@ -104,7 +104,7 @@ class ChatModel:
         options = {}
         if model.startswith(('gpt-5', 'gpt-6')):
             options['reasoning'] = {'effort': 'low'}
-        if reasoning_effort == 'none' and model == 'gpt-5.6-luna':
+        if reasoning_effort == 'none' and model in {'gpt-5.6-luna','gpt-6-luna'}:
             options['reasoning'] = {'effort': 'none'}
         if web_search:
             try:

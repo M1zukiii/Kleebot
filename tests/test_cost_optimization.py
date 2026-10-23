@@ -36,7 +36,7 @@ class CostTests(unittest.IsolatedAsyncioTestCase):
             agent.management.play_public_music.assert_awaited_once_with(message,'雨爱')
 
     async def test_router_none_effort_is_limited_to_supported_model_and_not_sent_as_sdk_metadata(self):
-        for name,expected in (('gpt-5.6-luna','none'),('gpt-6-astra','low')):
+        for name,expected in (('gpt-5.6-luna','none'),('gpt-6-luna','none'),('gpt-6-astra','low')):
             model=ChatModel(ChatConfig('openai','key',name,None,60))
             create=AsyncMock(return_value=NS(status='completed',output_text='{}',output=[]))
             model._client=NS(responses=NS(create=create))
