@@ -9,7 +9,7 @@ class ToolModel:
     async def step(self, instructions, history, tools):
         client = self.chat._get_client()
         if self.chat.config.provider == 'deepseek':
-            response = await client.chat.completions.create(
+            response = await self.chat.completion(
                 model=self.chat.config.model,
                 messages=[{'role': 'system', 'content': instructions}, *history],
                 tools=[{'type': 'function', 'function': {key: value for key, value in tool.items() if key not in {'type', 'strict'}}} for tool in tools],
@@ -23,7 +23,7 @@ class ToolModel:
             calls = [{'id': call.id, 'name': call.function.name, 'arguments': call.function.arguments}
                      for call in choice.message.tool_calls or []]
             return calls, choice.message.content or ''
-        response = await client.responses.create(
+        response = await self.chat.response(
             model=self.chat.config.model, instructions=instructions, input=history,
             tools=tools, parallel_tool_calls=False, max_output_tokens=1600, store=False,
         )

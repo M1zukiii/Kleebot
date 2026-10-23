@@ -3,6 +3,7 @@ import os
 from datetime import datetime, timezone
 from dataclasses import dataclass
 from urllib.parse import urlparse
+from .model_budget import ModelBudget
 
 
 @dataclass(frozen=True)
@@ -36,21 +37,43 @@ class ChatModel:
     def __init__(self, config=None):
         self.config = config or ChatConfig.from_env()
         self._client = None
+        self.budget = ModelBudget.from_env()
 
     @property
     def enabled(self):
-        return bool(self.config.api_key)
+        return bool(self.config.api_key) and not self.budget.state()[0]
+
+    async def response(self, **kwargs):
+        self.budget.before_request()
+        try:
+            response = await self._get_client().responses.create(**kwargs)
+        except Exception as exc:
+            self.budget.failed(exc)
+            raise
+        self.budget.record(response, kwargs.get('model', self.config.model))
+        return response
+
+    async def completion(self, **kwargs):
+        self.budget.before_request()
+        try:
+            response = await self._get_client().chat.completions.create(**kwargs)
+        except Exception as exc:
+            self.budget.failed(exc)
+            raise
+        self.budget.record(response, kwargs.get('model', self.config.model))
+        return response
 
     def _get_client(self):
         if self._client is None:
             from openai import AsyncOpenAI
-            kwargs = {"api_key": self.config.api_key, "timeout": self.config.timeout}
+            kwargs = {"api_key": self.config.api_key, "timeout": self.config.timeout, "max_retries": 0}
             if self.config.base_url:
                 kwargs["base_url"] = self.config.base_url
             self._client = AsyncOpenAI(**kwargs)
         return self._client
 
     async def generate(self, *, instructions, text, image_urls=None, max_tokens=180, model=None, web_search=False):
+        self.budget.before_request()
         if not self.enabled:
             raise RuntimeError("Chat API key is missing")
         client = self._get_client()
@@ -58,7 +81,7 @@ class ChatModel:
         if self.config.provider == "deepseek":
             content = [{"type": "text", "text": text}]
             content.extend({"type": "image_url", "image_url": {"url": url}} for url in (image_urls or [])[:4])
-            response = await client.chat.completions.create(
+            response = await self.completion(
                 model=model,
                 messages=[{"role": "system", "content": instructions}, {"role": "user", "content": content}],
                 max_tokens=max_tokens,
@@ -80,7 +103,7 @@ class ChatModel:
                 "优先可靠的一手来源，保留来源引用；搜索失败或资料不足时明确说明，不能假装查到了。"
                 "保持 Klee 的中文语气，正文简洁，通常不超过四句话。"
             )
-        response = await client.responses.create(
+        response = await self.response(
             model=model, instructions=instructions,
             input=[{"role": "user", "content": content}], max_output_tokens=max_tokens,
             **options,

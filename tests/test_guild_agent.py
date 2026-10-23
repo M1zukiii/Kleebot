@@ -196,7 +196,7 @@ class AgentProtocolTests(unittest.IsolatedAsyncioTestCase):
     async def test_openai_native_tool_items_are_returned_to_model(self):
         call = SimpleNamespace(type='function_call', call_id='one', name='warn_member', arguments='{}')
         create = AsyncMock(return_value=SimpleNamespace(status='completed', output=[call], output_text=''))
-        chat = SimpleNamespace(config=SimpleNamespace(provider='openai', model='configured-model'),
+        chat = SimpleNamespace(config=SimpleNamespace(provider='openai', model='configured-model'), response=create,
                                _get_client=lambda: SimpleNamespace(responses=SimpleNamespace(create=create)))
         model = ToolModel(chat)
         history = [{'role':'user','content':'test'}]
@@ -210,7 +210,7 @@ class AgentProtocolTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_incomplete_response_is_not_executed(self):
         create = AsyncMock(return_value=SimpleNamespace(status='incomplete'))
-        model = ToolModel(SimpleNamespace(config=SimpleNamespace(provider='openai', model='configured'),
+        model = ToolModel(SimpleNamespace(config=SimpleNamespace(provider='openai', model='configured'), response=create,
                          _get_client=lambda: SimpleNamespace(responses=SimpleNamespace(create=create))))
         with self.assertRaises(ValueError):
             await model.step('instructions', [], TOOLS)
