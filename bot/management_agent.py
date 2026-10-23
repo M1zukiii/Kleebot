@@ -249,13 +249,49 @@ class ManagementAgent:
             return {'ok': True, 'message': f'已加入播放队列：{track.title}'}
         raise ModerationError('此工具尚未实现。')
 
-    async def run(self, message):
+    async def continued_message(self, message, task):
+        """Re-read genuine source messages; model history never grants permissions."""
+        sources = task['sources']
+        if len(sources) >= 4:
+            raise ModerationError('补充次数已达上限，请重新完整描述任务。')
+        verified = []
+        for source in sources:
+            original = await message.channel.fetch_message(int(source['id']))
+            if (original.author.id != message.author.id or original.channel.id != message.channel.id
+                    or original.guild.id != message.guild.id or original.content != source['content']):
+                raise ModerationError('原任务消息已改变，请重新完整描述任务。')
+            verified.append(original)
+        verified.append(message)
+        return SimpleNamespace(id=message.id, guild=message.guild, channel=message.channel,
+            author=message.author, reply=message.reply,
+            content='\n补充：'.join(item.content for item in verified),
+            mentions=[member for item in verified for member in item.mentions],
+            channel_mentions=[channel for item in verified for channel in item.channel_mentions])
+
+    async def run(self, message, resume=None):
         lock = self.locks.setdefault(message.guild.id, asyncio.Lock())
         async with lock:
             await self.authorize(message)
+            sources = []
+            if resume is not None:
+                task = await asyncio.to_thread(self.store.manager_task, message.guild.id, message.author.id, message.channel.id)
+                if not task or task.get('state') != 'pending' or task['sources'][-1]['id'] != resume:
+                    raise ModerationError('待补充任务已过期或已处理，请重新完整描述任务。')
+                sources = task['sources']
+                current = message
+                message = await self.continued_message(current, task)
+            else:
+                current = message
+            if len(message.content) > 4000:
+                raise ModerationError('任务和补充内容过长，请重新用一条消息完整描述任务。')
+            sources = sources + [{'id': str(current.id), 'content': current.content}]
+            task = {'sources': sources, 'request': message.content[:4000], 'reply': '', 'state': 'running'}
+            # Persist before tools: an interrupted or uncertain write must never be resumed automatically.
+            await asyncio.to_thread(self.store.save_manager_task, message.guild.id, message.author.id, message.channel.id, task)
             history = [{'role': 'user', 'content': json.dumps({'authenticated_request': message.content[:4000],
                         'requester_id': str(message.author.id)}, ensure_ascii=False)}]
             created, cache, completed, errors = set(), {}, [], []
+            changed, uncertain = False, False
             inspected = False
             async with asyncio.timeout(180):
                 for _ in range(8):
@@ -283,6 +319,7 @@ class ManagementAgent:
                                 cache[key] = {'ok': False, 'error': str(exc) if isinstance(exc, ModerationError) else type(exc).__name__}
                                 await asyncio.to_thread(self.store.finish, record, 'rejected' if isinstance(exc, ModerationError) else 'failed_or_unconfirmed')
                                 if not isinstance(exc, (ModerationError, discord.Forbidden, discord.NotFound)):
+                                    uncertain = True
                                     if call['name'] == 'play_music':
                                         errors.append(f'音乐未能加入播放队列（{type(exc).__name__}），已停止；详细原因已写入本机日志。')
                                     else:
@@ -290,6 +327,8 @@ class ManagementAgent:
                                     break
                             else:
                                 await asyncio.to_thread(self.store.finish, record, 'success')
+                                if call['name'] != 'inspect_server' and cache[key].get('ok'):
+                                    changed = True
                         result = cache[key]
                         if result.get('ok') and call['name'] == 'inspect_server':
                             inspected = True
@@ -303,7 +342,10 @@ class ManagementAgent:
             text = ('已执行：\n'+'\n'.join(completed)) if completed else '这次没有执行更改。'
             if errors:
                 text += '\n说明：'+'；'.join(dict.fromkeys(errors))[:900]
+            task.update(reply=text[:1800], state='pending' if not changed and not uncertain and len(sources) < 4 else 'closed')
+            await asyncio.to_thread(self.store.save_manager_task, message.guild.id, message.author.id, message.channel.id, task)
             await asyncio.to_thread(self.store.action, message.guild.id, 'manager_reply',
-                                    {'actor': str(message.author.id), 'channel': str(message.channel.id), 'reply': text[:1800]}, 'reported')
+                                    {'actor': str(message.author.id), 'channel': str(message.channel.id),
+                                     'request': message.content[:1000], 'reply': text[:1800]}, 'reported')
             await message.reply(text[:1800], allowed_mentions=discord.AllowedMentions.none())
             return True

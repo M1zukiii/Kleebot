@@ -14,6 +14,7 @@ class AgentStore:
             db.execute('CREATE TABLE IF NOT EXISTS observations (id INTEGER PRIMARY KEY AUTOINCREMENT, guild TEXT, channel TEXT, message TEXT UNIQUE, author TEXT, content TEXT, stamp REAL)')
             db.execute('CREATE TABLE IF NOT EXISTS warnings (guild TEXT, member TEXT, message TEXT UNIQUE, channel TEXT, stamp REAL, consumed INTEGER DEFAULT 0)')
             db.execute('CREATE TABLE IF NOT EXISTS agent_actions (id INTEGER PRIMARY KEY AUTOINCREMENT, guild TEXT, tool TEXT, detail TEXT, state TEXT, stamp REAL)')
+            db.execute('CREATE TABLE IF NOT EXISTS manager_tasks (guild TEXT, channel TEXT, actor TEXT, detail TEXT, stamp REAL, PRIMARY KEY(guild,channel,actor))')
 
     @contextmanager
     def connect(self):
@@ -84,11 +85,28 @@ class AgentStore:
             return [dict(row) for row in db.execute('SELECT tool,state,detail,stamp FROM agent_actions WHERE guild=? ORDER BY id DESC LIMIT 5', (str(guild),))]
 
     def last_manager_reply(self, guild, actor, channel):
+        task = self.manager_task(guild, actor, channel)
+        if task:
+            reply = task.get('reply') or '这项任务尚无完成回执，不能确认是否执行；请检查实际状态。'
+            return '任务请求：'+task['request']+'\n实际结果：'+reply
         with self.connect() as db:
             rows = db.execute("SELECT detail FROM agent_actions WHERE guild=? AND tool='manager_reply' AND stamp>? ORDER BY id DESC LIMIT 50",
                               (str(guild), time.time()-1800)).fetchall()
         for row in rows:
             detail = json.loads(row['detail'])
             if detail.get('actor') == str(actor) and detail.get('channel') == str(channel):
-                return detail.get('reply', '')
+                request = detail.get('request', '')
+                return (('任务请求：'+request+'\n实际结果：') if request else '') + detail.get('reply', '')
         return ''
+
+    def manager_task(self, guild, actor, channel):
+        with self.connect() as db:
+            row = db.execute('SELECT detail FROM manager_tasks WHERE guild=? AND channel=? AND actor=? AND stamp>?',
+                             (str(guild), str(channel), str(actor), time.time()-900)).fetchone()
+        return json.loads(row['detail']) if row else None
+
+    def save_manager_task(self, guild, actor, channel, detail):
+        with self.connect() as db:
+            db.execute('DELETE FROM manager_tasks WHERE stamp<?', (time.time()-900,))
+            db.execute('INSERT OR REPLACE INTO manager_tasks VALUES(?,?,?,?,?)',
+                       (str(guild), str(channel), str(actor), json.dumps(detail, ensure_ascii=False), time.time()))
