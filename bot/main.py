@@ -30,7 +30,7 @@ from .fortune import (
 from .fortune_cooldown import FortuneCooldownStore
 from .klee_ai import FALLBACK_REPLY, KleeAI
 from .player import GuildPlayer
-from .math_reply import send_math_reply
+from .math_reply import MathCommands, send_math_reply
 from .file_service import FileService, requested_format
 from .budget_controls import BudgetControls
 from .resolver import Resolver
@@ -1521,6 +1521,7 @@ async def run_bot():
     global autonomy
     await bot.add_cog(Moderation(bot))
     await bot.add_cog(BudgetControls(klee_ai.chat_model.budget))
+    await bot.add_cog(MathCommands())
     autonomy = GuildAgent(bot, klee_ai.chat_model, DATA_DIR, player_factory=get_player)
     await bot.add_cog(autonomy)
     await bot.start(TOKEN)

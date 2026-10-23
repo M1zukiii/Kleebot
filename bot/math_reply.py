@@ -7,6 +7,7 @@ import re
 from threading import Lock
 
 import discord
+from discord.ext import commands
 
 
 _LOCK = Lock()
@@ -128,3 +129,13 @@ async def send_math_reply(message, text):
     finally:
         for file in files:
             file.close()
+
+
+class MathCommands(commands.Cog):
+    @commands.hybrid_command(name='公式', description='将数学公式转成图片或易读文字，不消耗 AI 额度。')
+    async def formula(self, ctx, *, expression: str):
+        if ctx.interaction:
+            await ctx.defer()
+        expression = expression.strip()
+        wrapped = expression if expression.startswith(('$', r'\(', r'\[', '```')) else r'\[' + expression + r'\]'
+        await send_math_reply(ctx, wrapped)
