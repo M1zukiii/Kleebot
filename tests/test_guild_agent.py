@@ -9,7 +9,8 @@ from unittest.mock import AsyncMock, Mock, patch
 
 from bot.agent_model import ToolModel
 from bot.agent_store import AgentStore
-from bot.guild_agent import GuildAgent, TOOLS
+from bot.guild_agent import GuildAgent
+from bot.management_agent import TOOLS
 from bot.moderation import ModerationError
 
 
@@ -39,6 +40,8 @@ class GuildAgentTests(unittest.IsolatedAsyncioTestCase):
                                    get_guild=lambda uid: self.guild if uid == 10 else None, user=self.bot_user)
         self.message.channel = self.channel
         self.agent = GuildAgent(self.bot, SimpleNamespace(enabled=True), self.data)
+        self.agent.router = SimpleNamespace(classify=AsyncMock(return_value={'route': 'chat', 'reason': ''}))
+        self.agent.management.run = AsyncMock(return_value=True)
         self.agent.store.set_goal(10, 1, 50, '多次警告仍刷屏才禁言60秒')
         self.args = {'member_id': '2', 'channel_id': '50', 'message_id': '400', 'reason': '警告后仍重复刷屏'}
 
@@ -63,16 +66,33 @@ class GuildAgentTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_non_mentions_never_record_or_invoke_model(self):
         self.message.mentions = []
-        self.agent.model = SimpleNamespace(step=AsyncMock())
         self.assertFalse(await self.agent.observe(self.message))
         self.assertEqual(self.agent.store.observations(10), [])
-        self.agent.model.step.assert_not_awaited()
+        self.agent.router.classify.assert_not_awaited()
+        self.agent.management.run.assert_not_awaited()
 
-    async def test_actual_mention_is_checked_immediately(self):
-        self.agent.model = SimpleNamespace(step=AsyncMock(return_value=([], 'normal chat')), result=Mock())
+    async def test_normal_mentions_never_call_agent(self):
         self.assertFalse(await self.agent.observe(self.message))
-        self.agent.model.step.assert_awaited_once()
-        self.assertEqual(len(self.agent.store.observations(10)), 1)
+        self.agent.router.classify.assert_awaited_once()
+        self.agent.management.run.assert_not_awaited()
+        self.assertEqual(self.agent.store.observations(10), [])
+
+    async def test_inappropriate_mention_warns_without_agent(self):
+        self.agent.router.classify.return_value = {'route': 'warn', 'reason': '直接辱骂'}
+        self.assertTrue(await self.agent.observe(self.message))
+        self.channel.send.assert_awaited_once()
+        self.agent.management.run.assert_not_awaited()
+
+    async def test_nonstaff_cannot_invoke_agent_even_if_router_requests_it(self):
+        self.agent.router.classify.return_value = {'route': 'agent', 'reason': ''}
+        self.assertFalse(await self.agent.observe(self.message))
+        self.agent.management.run.assert_not_awaited()
+
+    async def test_staff_task_invokes_agent(self):
+        self.message.author = self.owner
+        self.agent.router.classify.return_value = {'route': 'agent', 'reason': ''}
+        self.assertTrue(await self.agent.observe(self.message))
+        self.agent.management.run.assert_awaited_once_with(self.message)
 
     async def test_executor_rejects_unmentioned_evidence(self):
         self.message.mentions = []
@@ -157,27 +177,12 @@ class GuildAgentTests(unittest.IsolatedAsyncioTestCase):
             await self.execute('warn_member')
         self.channel.send.assert_awaited_once()
 
-    async def test_model_tool_result_loop_deduplicates_and_stops(self):
-        self.agent.store.observe(10, 50, 400, 2, self.message.content, self.message.created_at.timestamp())
-        call = {'id': 'call1', 'name': 'warn_member', 'arguments': json.dumps(self.args)}
-        self.agent.model = SimpleNamespace(step=AsyncMock(side_effect=[([call], ''), ([{**call, 'id': 'call2'}], ''), ([], 'done')]), result=Mock())
-        await self.agent.run_once(self.agent.store.goal(10))
-        self.channel.send.assert_awaited_once()
-        self.assertEqual(self.agent.model.result.call_count, 2)
-        self.assertEqual(self.agent.store.recent(10)[0]['state'], 'complete')
-        await self.agent.run_once(self.agent.store.goal(10))
-        self.assertEqual(self.agent.model.step.await_count, 3)  # no new messages -> no extra API call
-
-    async def test_bounded_observations_and_no_api_for_invisible_channel(self):
+    async def test_observations_remain_bounded(self):
         for mid in range(100):
             self.agent.store.observe(10, 50, mid, 2, 'x'*1000, time.time())
         rows = self.agent.store.observations(10)
         self.assertEqual(len(rows), 80)
         self.assertEqual(len(rows[0]['content']), 700)
-        self.permissions.view_channel = False
-        self.agent.model = SimpleNamespace(step=AsyncMock())
-        await self.agent.run_once(self.agent.store.goal(10))
-        self.agent.model.step.assert_not_awaited()
 
     async def test_permission_loss_disables_autonomy(self):
         self.owner.guild_permissions.manage_guild = False

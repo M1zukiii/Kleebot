@@ -1501,7 +1501,7 @@ class _ContextInteraction:
 async def run_bot():
     global autonomy
     await bot.add_cog(Moderation(bot))
-    autonomy = GuildAgent(bot, klee_ai.chat_model, DATA_DIR)
+    autonomy = GuildAgent(bot, klee_ai.chat_model, DATA_DIR, player_factory=get_player)
     await bot.add_cog(autonomy)
     await bot.start(TOKEN)
 
