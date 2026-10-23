@@ -13,6 +13,8 @@ from xml.sax.saxutils import escape
 from zipfile import ZipFile
 
 import discord
+from discord import app_commands
+from discord.ext import commands
 from .model_budget import BASIC_MESSAGE
 
 
@@ -222,6 +224,11 @@ class FileService:
             return saved[1]
         return ''
 
+    def clear_context(self, channel_id):
+        for scope in list(self.documents):
+            if scope[1] == channel_id:
+                self.documents.pop(scope, None)
+
     async def read_attachments(self, attachments):
         contexts = []
         documents = [item for item in attachments if not (item.content_type or '').startswith(('image/', 'audio/', 'video/'))]
@@ -261,8 +268,8 @@ class FileService:
             raw = raw.split('\n', 1)[1].rsplit('```', 1)[0]
         return await asyncio.to_thread(build_artifact, json.loads(raw), extension)
 
-    async def send_generated(self, message, request, context=''):
-        extension = requested_format(request)
+    async def send_generated(self, message, request, context='', *, extension=None):
+        extension = extension or requested_format(request)
         if extension is None:
             return False
         if self.chat.budget.state()[0]:
@@ -285,6 +292,7 @@ class FileService:
             await message.reply(text, allowed_mentions=discord.AllowedMentions.none())
         return True
 
+
     async def basic_extract(self, message, context):
         if not context or not self.chat.budget.state()[0]:
             return False
@@ -297,3 +305,42 @@ class FileService:
         finally:
             file.close()
         return True
+
+
+class FileCommands(commands.Cog):
+    def __init__(self, service, conversations):
+        self.service, self.conversations = service, conversations
+
+    @commands.hybrid_command(name='读文件', description='上传文档，让 Klee 阅读、总结或回答问题，支持 PDF、Word、Excel 等。')
+    @app_commands.describe(attachment='上传 TXT、MD、CSV、JSON、PDF、DOCX 或 XLSX，最大5MB。', instruction='希望 Klee 如何处理文件，例如总结、提取重点或回答问题。')
+    @app_commands.rename(attachment='文件', instruction='要求')
+    async def read_file(self, ctx, attachment: discord.Attachment, *, instruction: str = '请总结这个文件的主要内容。'):
+        if ctx.interaction:
+            await ctx.defer()
+        context = await self.service.read_attachments([attachment])
+        scope = (ctx.guild.id if ctx.guild else None, ctx.channel.id, ctx.author.id)
+        context = self.service.document_context(scope, instruction, context)
+        if await self.service.basic_extract(ctx, context):
+            return
+        answer = await self.conversations.reply(channel_id=ctx.channel.id, user_id=ctx.author.id,
+            user_name=ctx.author.display_name, message=instruction, document_context=context)
+        from .math_reply import send_math_reply
+        await send_math_reply(ctx, answer)
+
+    @commands.hybrid_command(name='生成文件', description='按要求生成可下载的 TXT、MD、CSV、JSON、PDF、Word 或 Excel。')
+    @app_commands.describe(request='要生成的内容和要求。', format='选择输出文件格式。', attachment='可选：上传一份需要整理或转换的资料。')
+    @app_commands.rename(request='要求', format='格式', attachment='参考文件')
+    @app_commands.choices(format=[app_commands.Choice(name=name, value=value) for name, value in
+        [('PDF', 'pdf'), ('Word（DOCX）', 'docx'), ('Excel（XLSX）', 'xlsx'), ('TXT', 'txt'), ('Markdown', 'md'), ('CSV', 'csv'), ('JSON', 'json')]])
+    async def generate_file(self, ctx, request: str, format: str = 'pdf', attachment: discord.Attachment | None = None):
+        if ctx.interaction:
+            await ctx.defer()
+        if format not in FORMATS:
+            await ctx.send('请选择支持的文件格式。', allowed_mentions=discord.AllowedMentions.none())
+            return
+        fresh = await self.service.read_attachments([attachment] if attachment else [])
+        scope = (ctx.guild.id if ctx.guild else None, ctx.channel.id, ctx.author.id)
+        context = self.service.document_context(scope, '生成文件：' + request, fresh)
+        history = await asyncio.to_thread(self.conversations.store.context, ctx.channel.id)
+        context += '\n最近对话（仅供参考）：\n' + '\n'.join(history)
+        await self.service.send_generated(ctx, request, context, extension=format)
