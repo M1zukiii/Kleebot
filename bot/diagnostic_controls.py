@@ -33,7 +33,8 @@ class DiagnosticControls(commands.Cog):
     def visible(self,guild,actor,row):
         if actor.id == guild.owner_id or actor.guild_permissions.administrator:
             return True
-        channel = self.bot.get_channel(int(row['channel'])) if row.get('channel','').isdigit() else None
+        channel_id = str(row.get('channel') or '')
+        channel = self.bot.get_channel(int(channel_id)) if channel_id.isdigit() else None
         return channel is not None and channel.guild.id == guild.id and channel.permissions_for(actor).view_channel
 
     async def describe(self,guild,user,incident=None):
@@ -45,7 +46,16 @@ class DiagnosticControls(commands.Cog):
         if not incident:
             lines += [f"操作 {r['id']} · {r['tool']} · {r['state']}" for r in recent
                       if self.visible(guild,actor,json.loads(r['detail']))]
+            lines += await asyncio.to_thread(self.uncertain_penalties,guild.id)
         return '\n\n'.join(lines)[:1800] or '当前服务器没有可查看的诊断记录。'
+
+    def uncertain_penalties(self,guild):
+        lines = []
+        for kind,store,table in [('刷屏',self.spam.store,'penalties'),('骚扰',self.agent.store,'mention_penalties'),('超量请求',self.agent.store,'token_penalties')]:
+            with store.connect() as db:
+                rows = db.execute(f"SELECT message,state FROM {table} WHERE guild=? AND state IN ('pending','uncertain') ORDER BY stamp DESC LIMIT 3",(str(guild),)).fetchall()
+            lines.extend(f'{kind} · 消息编号 {r[0]} · {r[1]}' for r in rows)
+        return lines
 
     async def reconcile(self,guild,user,kind,number,resume=False):
         actor = await self.authorize(guild,user,audit=True)

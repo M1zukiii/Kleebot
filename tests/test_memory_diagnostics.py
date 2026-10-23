@@ -58,6 +58,20 @@ class MemoryRegression(unittest.IsolatedAsyncioTestCase):
         for text in ['他说我喜欢吃拉面','我不喜欢吃拉面','我喜欢吃“拉面”','他第三喜欢吃吧唧','我第一喜欢吃拉面，第一喜欢吃咖喱']:
             self.assertIsNone(food_plan(text),text)
 
+    async def test_legacy_deletion_wins_over_an_old_channel_copy(self):
+        p=identity(1,'M1zuki')
+        self.memory.execute(10,1,[('set',p,'food.favorite.1','拉面')])
+        self.memory.execute(11,1,[('forget',p,'food.favorite.1',None)])
+        self.memory.map_channels([(10,100),(11,100)])
+        self.assertIn('已经删除',await self.ask('我最喜欢吃什么'))
+
+    def test_multiple_writes_roll_back_as_one_transaction_on_limit(self):
+        p=identity(1,'M1zuki')
+        self.memory.execute(10,1,[('set',p,f'key{n}','x') for n in range(49)])
+        with self.assertRaises(ValueError):
+            self.memory.execute(10,1,[('set',p,'food.favorite.1','拉面'),('set',p,'food.favorite.2','咖喱')])
+        self.assertNotIn('拉面',self.memory.own_context(10,1))
+
 
 class DiagnosticRegression(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
