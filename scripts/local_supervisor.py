@@ -1,5 +1,6 @@
 """Local owner-requested main updates; keep runtime, config and data separate."""
 import argparse
+import hashlib
 from contextlib import contextmanager
 import json
 import os
@@ -96,6 +97,11 @@ class LocalSupervisor:
         if not REPO.fullmatch(self.repo):
             raise ValueError('KLEE_GITHUB_REPO must be owner/repo')
         self.full = full
+        # Deep package paths (notably NumPy) exceed MAX_PATH below a long checkout.
+        # Keep each install/revision isolated under the shorter user runtime cache.
+        local_app_data = os.environ.get('LOCALAPPDATA') if os.name == 'nt' else None
+        installation = hashlib.sha256(str(self.root).encode('utf-8')).hexdigest()[:16]
+        self.runtime_cache = Path(local_app_data) / 'Kleebot' / 'runtimes' / installation if local_app_data else None
         self.process = None
         self.log_thread = None
         self.ready = None
@@ -120,7 +126,19 @@ class LocalSupervisor:
         if not SHA.fullmatch(revision):
             raise ValueError('Invalid revision')
         release = self.private / 'releases' / revision
-        return release / 'source', python_in(release / 'venv')
+        environment = self.environment(revision)
+        legacy = release / 'venv'
+        # Existing releases remain usable for rollback after upgrading the supervisor.
+        if not python_in(environment).is_file() and python_in(legacy).is_file():
+            environment = legacy
+        return release / 'source', python_in(environment)
+
+    def environment(self, revision):
+        if not SHA.fullmatch(revision):
+            raise ValueError('Invalid revision')
+        if self.runtime_cache is not None:
+            return self.runtime_cache / revision
+        return self.private / 'releases' / revision / 'venv'
 
     def start(self, revision):
         source, python = self.source(revision)
@@ -231,8 +249,11 @@ class LocalSupervisor:
         # Refuse the old main before the maintenance framework is merged.
         if not (source / 'scripts/local_supervisor.py').is_file():
             raise ValueError('main 尚未包含 Windows 自维护，请先合并自维护更新')
-        environment = release / 'venv'
-        venv.EnvBuilder(with_pip=True).create(environment)
+        environment = self.environment(revision)
+        intended_parent = self.runtime_cache if self.runtime_cache is not None else release
+        if environment.resolve().parent != intended_parent.resolve():
+            raise ValueError('Invalid runtime directory')
+        venv.EnvBuilder(with_pip=True, clear=True).create(environment)
         python = python_in(environment)
         env = build_environment()
         requirements = source / ('requirements.txt' if self.full else 'requirements-local.txt')
