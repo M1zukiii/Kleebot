@@ -11,6 +11,10 @@ from bot.conversation import ConversationStore, ConversationService
 
 
 class ConfigTests(unittest.TestCase):
+    def test_openai_default_is_gpt_6_luna(self):
+        with patch.dict(os.environ, {}, clear=True):
+            self.assertEqual(ChatConfig.from_env().model,'gpt-6-luna')
+
     def test_legacy_openai_and_provider_isolation(self):
         with patch.dict(os.environ, {"OPENAI_API_KEY": "old-key", "OPENAI_MODEL": "old-model"}, clear=True):
             config = ChatConfig.from_env()
