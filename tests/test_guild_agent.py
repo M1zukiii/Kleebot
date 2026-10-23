@@ -101,6 +101,23 @@ class GuildAgentTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(RuntimeError):
             await self.execute('warn_member')
         self.assertEqual(self.agent.store.warnings(10, 2), [])
+        self.assertFalse(self.agent.store.goal(10)['enabled'])
+
+    async def test_pause_during_preflight_stops_timeout_at_final_boundary(self):
+        self.seed_warnings()
+        original = self.agent.current
+        count = 0
+        async def pause_after_check(*args):
+            nonlocal count
+            result = await original(*args)
+            count += 1
+            if count == 2:
+                self.agent.store.pause(10)
+            return result
+        self.agent.current = pause_after_check
+        with self.assertRaises(ModerationError):
+            await self.execute('timeout_member')
+        self.target.timeout.assert_not_awaited()
 
     async def test_warning_persists_and_same_evidence_cannot_count_twice(self):
         result = await self.execute('warn_member')

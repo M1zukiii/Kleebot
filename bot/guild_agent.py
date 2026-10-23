@@ -172,8 +172,12 @@ class GuildAgent(commands.Cog):
                 result = {'ok': True, 'timeout_seconds': 60, 'member_id': str(target.id), 'announced': announced}
             await asyncio.to_thread(self.store.finish, action_id, 'success')
             return result
-        except Exception:
+        except Exception as exc:
             await asyncio.to_thread(self.store.finish, action_id, 'failed_or_unconfirmed')
+            if not isinstance(exc, (ModerationError, discord.Forbidden, discord.NotFound)):
+                # A lost response might follow an applied effect. Do not
+                # automatically repeat uncertain writes in another cycle.
+                await asyncio.to_thread(self.store.pause, guild.id)
             raise
 
     async def run_once(self, goal):
@@ -267,8 +271,12 @@ class GuildAgent(commands.Cog):
         if not saved:
             return '尚未开启自治。使用 /自治开启 设置目标。'
         recent = await asyncio.to_thread(self.store.recent, guild.id)
-        state = '运行中' if saved['enabled'] else '已暂停'
-        return f"自治：{state}\n目标：{saved['goal']}\n规则：三次警告后继续违规，禁言 60 秒。\n近期执行：" + '；'.join(f"{item['tool']}={item['state']}" for item in recent)
+        state = ('运行中' if self.observe_loop.is_running() else '观察循环已停止，请检查运行日志') if saved['enabled'] else '已暂停'
+        tools = {'cycle': '群聊判断', 'warn_member': '警告', 'timeout_member': '禁言'}
+        states = {'complete': '完成', 'success': '成功', 'rejected': '未执行', 'failed': '失败',
+                  'applied': '已执行', 'pending': '执行中', 'failed_or_unconfirmed': '结果未确认', 'step_limit': '本轮已结束'}
+        entries = [f"{tools.get(item['tool'], '管理动作')}：{states.get(item['state'], '已记录')}" for item in recent]
+        return f"自治：{state}\n目标：{saved['goal']}\n规则：三次警告后继续违规，禁言 60 秒。\n近期执行：" + ('；'.join(entries) or '暂无')
 
     @app_commands.command(name='自治开启', description='设置 Klee 持续观察群聊的目标，并开启 agent。')
     @app_commands.guild_only()
