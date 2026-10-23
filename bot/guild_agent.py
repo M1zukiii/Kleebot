@@ -14,6 +14,7 @@ from .mention_router import MentionRouter, is_staff, local_music_request
 from .management_agent import ManagementAgent
 from .token_guard import excessive_request
 from .diagnostics import DiagnosticStore, explanation
+from .lifecycle_log import LifecycleLog
 
 
 DEFAULT_GOAL = '只检查真正 @Klee 的发言，识别明确定向辱骂（包括对Klee的辱骂）、恶意骚扰和仇恨攻击。普通聊天、玩笑、不同意见和引用不处罚。首次禁言60秒作为警告；24小时内再犯依次5分钟、15分钟、60分钟，上限60分钟。'
@@ -28,6 +29,7 @@ def owner_allowed(guild, member):
 class GuildAgent(commands.Cog):
     def __init__(self, bot, chat_model, data_dir, player_factory=None):
         self.bot = bot
+        self.lifecycle_log = LifecycleLog(bot)
         self.chat = chat_model
         self.store = AgentStore(data_dir / 'guild_agent.sqlite3')
         self.router = MentionRouter(chat_model)
