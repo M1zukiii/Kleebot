@@ -12,6 +12,7 @@ from .maintenance import is_owner
 from .moderation import ModerationError, apply_timeout, can_moderate, check_members, publish_receipt
 from .mention_router import MentionRouter, is_staff
 from .management_agent import ManagementAgent
+from .token_guard import excessive_request
 
 
 DEFAULT_GOAL = '只检查真正 @Klee 的发言，识别明确定向辱骂（包括对Klee的辱骂）、恶意骚扰和仇恨攻击。普通聊天、玩笑、不同意见和引用不处罚。首次禁言60秒作为警告；24小时内再犯依次5分钟、15分钟、60分钟，上限60分钟。'
@@ -33,6 +34,35 @@ class GuildAgent(commands.Cog):
         self.locks = {}
         self.failures = {}
 
+    async def guard_tokens(self, message):
+        if (message.guild is None or message.author.bot or self.bot.user not in message.mentions
+                or message.content.startswith(str(self.bot.command_prefix))):
+            return False
+        reason = excessive_request(message.content)
+        if not reason:
+            return False
+        async with self.locks.setdefault(message.guild.id, asyncio.Lock()):
+            warning = await asyncio.to_thread(self.store.token_warning, message.guild.id, message.author.id)
+            if not warning:
+                await message.reply('⚠️ Klee 提醒：'+reason+'\n这次已拦截，不调用模型。请停止这类超量输出请求；24小时内再犯将禁言60秒，之后逐级增加。',
+                                    allowed_mentions=discord.AllowedMentions.none())
+                await asyncio.to_thread(self.store.add_token_warning, message.guild.id, message.author.id, message.id)
+                return True
+            if str(message.id) == warning['message'] or message.created_at.timestamp() <= warning['stamp']:
+                return True
+            goal = await asyncio.to_thread(self.store.goal, message.guild.id)
+            protected = message.author.id == message.guild.owner_id or message.author.guild_permissions.administrator
+            if not goal or not goal['enabled'] or protected:
+                return True
+            args = {'member_id': str(message.author.id), 'channel_id': str(message.channel.id),
+                    'message_id': str(message.id), 'reason': reason}
+            try:
+                await self.execute(message.guild, goal['version'], 'token_abuse_timeout', args,
+                                   {str(message.id): {'content': message.content}})
+            except Exception as exc:
+                await asyncio.to_thread(self.store.action, message.guild.id, 'token_guard', {'error': type(exc).__name__}, 'failed')
+            return True
+
     async def observe(self, message):
         if message.guild is None or message.author.bot or self.bot.user not in message.mentions:
             return False
@@ -40,8 +70,6 @@ class GuildAgent(commands.Cog):
             return False
         goal = await asyncio.to_thread(self.store.goal, message.guild.id)
         staff = is_staff(message.author)
-        if (not goal or not goal['enabled']) and not staff:
-            return False
         # Commands are control messages, not moderation evidence.
         if message.content.startswith(str(self.bot.command_prefix)):
             return False
@@ -55,6 +83,20 @@ class GuildAgent(commands.Cog):
                 await message.reply('Klee 已取消这项待补充任务。', allowed_mentions=discord.AllowedMentions.none())
                 return True
             route = await self.router.classify(message.content, staff, goal=goal['goal'] if goal and goal['enabled'] else '', pending_task=pending)
+            if route['route'] == 'music':
+                try:
+                    result = await self.management.play_public_music(message, route['query'])
+                    text = result['message']
+                except Exception as exc:
+                    text = str(exc) if isinstance(exc, ModerationError) else f'播放未能完成（{type(exc).__name__}），请稍后重试。'
+                await asyncio.to_thread(self.store.save_manager_task, message.guild.id, message.author.id, message.channel.id,
+                    {'sources':[{'id':str(message.id),'content':message.content}], 'state':'closed',
+                     'request':message.content[:4000], 'reply':text[:1800]})
+                await asyncio.to_thread(self.store.action, message.guild.id, 'manager_reply',
+                    {'actor':str(message.author.id), 'channel':str(message.channel.id),
+                     'request':message.content[:1000], 'reply':text[:1800]}, 'reported')
+                await message.reply(text[:1800], allowed_mentions=discord.AllowedMentions.none())
+                return True
             if route['route'] in {'agent', 'resume'} and staff and (route['route'] != 'resume' or pending):
                 try:
                     if route['route'] == 'resume':
@@ -106,7 +148,7 @@ class GuildAgent(commands.Cog):
         return goal, owner
 
     async def execute(self, guild, version, name, arguments, evidence_ids):
-        if name not in {'warn_member', 'timeout_member', 'harassment_timeout'}:
+        if name not in {'warn_member', 'timeout_member', 'harassment_timeout', 'token_abuse_timeout'}:
             raise ModerationError('未知工具。')
         expected = {'member_id', 'channel_id', 'message_id', 'reason'}
         if not isinstance(arguments, dict) or set(arguments) != expected:
@@ -132,7 +174,9 @@ class GuildAgent(commands.Cog):
         message = await channel.fetch_message(int(arguments['message_id']))
         if self.bot.user not in message.mentions:
             raise ModerationError('只有真正 @Klee 的消息才能触发检查。')
-        observed_content = message.content if name == 'harassment_timeout' else message.content[:700]
+        escalating = name in {'harassment_timeout', 'token_abuse_timeout'}
+        kind = 'token' if name == 'token_abuse_timeout' else 'mention'
+        observed_content = message.content if escalating else message.content[:700]
         if isinstance(evidence_ids, dict) and observed_content != evidence_ids[arguments['message_id']]['content']:
             raise ModerationError('消息内容已修改，本轮不再处理这条证据。')
         if str(message.author.id) != arguments['member_id'] or message.author.bot:
@@ -141,26 +185,30 @@ class GuildAgent(commands.Cog):
             raise ModerationError('只处理十分钟以内的新违规消息。')
         target = await guild.fetch_member(message.author.id)
         bot_member = await guild.fetch_member(guild.me.id)
-        if name in {'timeout_member', 'harassment_timeout'}:
+        if name in {'timeout_member', 'harassment_timeout', 'token_abuse_timeout'}:
             check_members(guild, owner, target, bot_member)
         warnings = await asyncio.to_thread(self.store.warnings, guild.id, target.id)
-        if name != 'harassment_timeout' and warnings and message.created_at.timestamp() <= warnings[-1]['stamp']:
+        if not escalating and warnings and message.created_at.timestamp() <= warnings[-1]['stamp']:
             raise ModerationError('这条消息发生在上次警告之前，不能作为继续违规的依据。')
         if target.is_timed_out():
             raise ModerationError('成员已在禁言中，不重复处罚。')
         if name == 'timeout_member' and len(warnings) < 3:
             raise ModerationError('还没有三次有效警告，不能自主禁言。')
         minutes = 1
-        if name == 'harassment_timeout':
+        if escalating:
             if await asyncio.to_thread(self.store.mention_interrupted, guild.id):
                 await asyncio.to_thread(self.store.pause, guild.id)
                 raise ModerationError('上次禁言结果未确认，提及检查已暂停。')
-            strikes = await asyncio.to_thread(self.store.mention_strikes, guild.id, target.id)
+            if kind == 'token':
+                warning = await asyncio.to_thread(self.store.token_warning, guild.id, target.id)
+                if not excessive_request(message.content) or not warning or message.created_at.timestamp() <= warning['stamp']:
+                    raise ModerationError('需要先有明确警告，之后新的超量请求才能处罚。')
+            strikes = await asyncio.to_thread(self.store.mention_strikes, guild.id, target.id, kind)
             if strikes and message.created_at.timestamp() <= strikes[-1]['stamp']:
                 raise ModerationError('不重复处罚上次禁言前的消息。')
             minutes = (1, 5, 15, 60)[min(len(strikes), 3)]
         await self.current(guild, version)
-        if name == 'harassment_timeout' and not await asyncio.to_thread(self.store.reserve_mention, guild.id, target.id, message.id, minutes):
+        if escalating and not await asyncio.to_thread(self.store.reserve_mention, guild.id, target.id, message.id, minutes, kind):
             return {'ok': False, 'error': '此消息已处理，不重复处罚。'}
         action_id = await asyncio.to_thread(self.store.action, guild.id, name, arguments, 'pending')
         confirmed = False
@@ -176,15 +224,15 @@ class GuildAgent(commands.Cog):
             else:
                 async def guard():
                     await self.current(guild, version)
-                label = (f'提及骚扰：24小时内第{len(strikes)+1}次，首次60秒作为警告；'
-                         if name == 'harassment_timeout' else '自治：三次警告后仍继续违规；')
+                label = (f'{"超量输出请求（已先警告）" if kind == "token" else "提及骚扰"}：24小时内第{len(strikes)+1}次；'
+                         if escalating else '自治：三次警告后仍继续违规；')
                 receipt = await apply_timeout(guild, owner, target, bot_member, channel, minutes,
                                               label + reason, before_apply=guard)
                 confirmed = True
                 receipt.duration_label = '60秒' if minutes == 1 else f'{minutes}分钟'
                 receipt.automated = True
-                if name == 'harassment_timeout':
-                    await asyncio.to_thread(self.store.finish_mention, message.id, 'applied')
+                if escalating:
+                    await asyncio.to_thread(self.store.finish_mention, message.id, 'applied', kind)
                 else:
                     await asyncio.to_thread(self.store.consume, guild.id, target.id)
                 await asyncio.to_thread(self.store.finish, action_id, 'applied')
@@ -197,11 +245,11 @@ class GuildAgent(commands.Cog):
             await asyncio.to_thread(self.store.finish, action_id, 'success')
             return result
         except Exception as exc:
-            if name == 'harassment_timeout':
+            if escalating:
                 # Keep confirmed writes even if reporting later fails.
                 if not confirmed:
                     await asyncio.to_thread(self.store.finish_mention, message.id,
-                        'rejected' if isinstance(exc, (ModerationError, discord.Forbidden, discord.NotFound)) else 'uncertain')
+                        'rejected' if isinstance(exc, (ModerationError, discord.Forbidden, discord.NotFound)) else 'uncertain', kind)
             await asyncio.to_thread(self.store.finish, action_id, 'failed_or_unconfirmed')
             if not isinstance(exc, (ModerationError, discord.Forbidden, discord.NotFound)):
                 # A lost response might follow an applied effect. Do not

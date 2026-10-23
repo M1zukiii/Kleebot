@@ -296,6 +296,8 @@ async def on_ready() -> None:
 async def on_message(message: discord.Message) -> None:
     if message.author.bot:
         return
+    if autonomy is not None and await autonomy.guard_tokens(message):
+        return
     moderation_handled = False
     if spam_guard is not None:
         try:

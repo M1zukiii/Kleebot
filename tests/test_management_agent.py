@@ -14,6 +14,12 @@ from bot.moderation import ModerationError
 
 
 class RouterTests(unittest.IsolatedAsyncioTestCase):
+    async def test_music_is_available_to_nonstaff_with_a_bounded_query(self):
+        chat=SimpleNamespace(generate=AsyncMock(return_value='{"route":"music","query":"bilisearch1:雨爱","reason":""}'))
+        router=MentionRouter(chat)
+        self.assertEqual((await router.classify('播放雨爱',False))['query'],'bilisearch1:雨爱')
+        chat.generate.return_value='{"route":"music","query":""}'
+        self.assertEqual((await router.classify('播放',False))['route'],'chat')
     async def test_resume_requires_staff_and_pending_context(self):
         chat = SimpleNamespace(generate=AsyncMock(return_value='{"route":"resume","reason":""}'))
         router = MentionRouter(chat)
@@ -34,6 +40,29 @@ class RouterTests(unittest.IsolatedAsyncioTestCase):
 
 
 class ManagementTests(unittest.IsolatedAsyncioTestCase):
+    async def test_public_playback_uses_voice_permissions_without_staff_role(self):
+        self.actor.guild_permissions=SimpleNamespace()
+        voice=SimpleNamespace(guild=self.guild,permissions_for=lambda _:SimpleNamespace(view_channel=True,connect=True,speak=True))
+        self.actor.voice=SimpleNamespace(channel=voice)
+        player=SimpleNamespace(enqueue=AsyncMock(return_value=SimpleNamespace(title='雨爱')))
+        self.agent.player_factory=lambda _:player
+        result=await self.agent.play_public_music(self.message,'雨爱')
+        self.assertTrue(result['ok'])
+        player.enqueue.assert_awaited_once()
+        with self.assertRaises(ModerationError):
+            await self.agent.authorize(self.message)
+
+    async def test_public_playback_requires_actual_voice_and_channel_permissions(self):
+        self.actor.guild_permissions=SimpleNamespace()
+        player=SimpleNamespace(enqueue=AsyncMock())
+        self.agent.player_factory=lambda _:player
+        with self.assertRaisesRegex(ModerationError,'先加入'):
+            await self.agent.play_public_music(self.message,'雨爱')
+        self.actor.voice=SimpleNamespace(channel=SimpleNamespace(guild=self.guild,
+            permissions_for=lambda _:SimpleNamespace(view_channel=True,connect=False,speak=True)))
+        with self.assertRaises(ModerationError):
+            await self.agent.play_public_music(self.message,'雨爱')
+        player.enqueue.assert_not_awaited()
     async def pending_music(self):
         self.message.content = '@Klee b站搜索雨爱然后播放'
         self.agent.model = SimpleNamespace(step=AsyncMock(return_value=([], '请告诉我语音频道')), result=Mock())
