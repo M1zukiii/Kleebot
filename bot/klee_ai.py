@@ -39,6 +39,7 @@ class GeneratedImage:
 class KleeAI:
     def __init__(self) -> None:
         self.chat_model = ChatModel()
+        self.web_search = os.getenv("KLEE_WEB_SEARCH", "true").strip().lower() in {"1", "true", "yes", "on"} and self.chat_model.config.provider == "openai"
         self.api_key = os.getenv("OPENAI_API_KEY")
         self.model = os.getenv("OPENAI_MODEL", "gpt-5.6-luna")
         self.image_model = os.getenv("OPENAI_IMAGE_MODEL", "gpt-image-1.5")
@@ -150,7 +151,8 @@ class KleeAI:
         try:
             text = await self.chat_model.generate(
                 instructions=self._system_prompt() + '\n当前是普通聊天模式，没有执行群管理工具。不得声称已经禁言、创建或删除频道、安排活动、播放音乐。只有执行模块的真实结果才能确认这些操作。', text=text_prompt,
-                image_urls=image_urls, max_tokens=180,
+                image_urls=image_urls, max_tokens=900 if self.web_search else 180,
+                web_search=self.web_search,
             )
         except Exception as exc:
             print(
@@ -160,6 +162,8 @@ class KleeAI:
             cause = getattr(exc, "__cause__", None)
             if cause:
                 print(f"klee ai reply cause: {type(cause).__name__}: {cause}", flush=True)
+            if self.web_search:
+                return "唔，Klee 这次没能完成查询，请稍后再试一次；现在还不能确认最新消息哦。"
             return FALLBACK_REPLY
 
         if not text:
