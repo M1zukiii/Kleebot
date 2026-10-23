@@ -1,5 +1,20 @@
 """One text classification call; never supplies tools or an agent loop."""
 import json
+import re
+
+
+def local_music_request(content, bot_id):
+    """Only complete, simple playback commands; all ambiguous text stays classified."""
+    text = re.sub(r'<@!?'+str(bot_id)+r'>', '', content).strip()
+    if '\n' in text or re.search(r'然后|同时|另外|并且|禁言|封禁|踢出|删[除掉]|创建|新建|改名|欢迎|活动|不要|别放|\b(?:ban|kick|delete|create|then|and)\b', text, re.I):
+        return None
+    match = re.fullmatch(r'(?:请|帮我|给我|请帮我)?\s*(?:播放|放一下|放一首|点播)\s*(?:《([^》]+)》|(.+))', text)
+    if not match:
+        return None
+    query = (match.group(1) or match.group(2)).strip()
+    if not 1 <= len(query) <= 500 or re.search(r'[?？]|怎么|如何|为什么|能否|能不能|可不可以|失败|不了|不能|权限|是什么|吗$|^吧$', query):
+        return None
+    return query
 
 
 PROMPT = '''Classify ONE Discord message addressed to Klee. Return JSON only:
@@ -28,7 +43,8 @@ class MentionRouter:
     async def classify(self, content, staff, goal='', pending_task=None):
         raw = await self.chat.generate(instructions=PROMPT,
             text=json.dumps({'authenticated_staff': bool(staff), 'configured_owner_goal': goal[:1500], 'message': content[:4000],
-                             'pending_task': pending_task if staff else None}, ensure_ascii=False), max_tokens=250)
+                             'pending_task': pending_task if staff else None}, ensure_ascii=False), max_tokens=250,
+            purpose='router', reasoning_effort='none')
         try:
             result = json.loads(raw)
         except (ValueError, TypeError):

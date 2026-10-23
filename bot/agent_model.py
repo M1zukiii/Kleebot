@@ -10,6 +10,7 @@ class ToolModel:
         client = self.chat._get_client()
         if self.chat.config.provider == 'deepseek':
             response = await self.chat.completion(
+                usage_kind='agent',
                 model=self.chat.config.model,
                 messages=[{'role': 'system', 'content': instructions}, *history],
                 tools=[{'type': 'function', 'function': {key: value for key, value in tool.items() if key not in {'type', 'strict'}}} for tool in tools],
@@ -23,9 +24,11 @@ class ToolModel:
             calls = [{'id': call.id, 'name': call.function.name, 'arguments': call.function.arguments}
                      for call in choice.message.tool_calls or []]
             return calls, choice.message.content or ''
+        options = {'reasoning': {'effort':'low'}} if self.chat.config.model.startswith(('gpt-5','gpt-6')) else {}
         response = await self.chat.response(
+            usage_kind='agent',
             model=self.chat.config.model, instructions=instructions, input=history,
-            tools=tools, parallel_tool_calls=False, max_output_tokens=1600, store=False,
+            tools=tools, parallel_tool_calls=False, max_output_tokens=1600, store=False, **options,
         )
         if response.status != 'completed':
             raise ValueError('Incomplete agent response')

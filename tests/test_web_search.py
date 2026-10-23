@@ -22,6 +22,7 @@ class WebSearchTests(unittest.IsolatedAsyncioTestCase):
         args = create.call_args.kwargs
         self.assertEqual(args["tools"][0]["type"], "web_search")
         self.assertEqual(args["tool_choice"], "auto")
+        self.assertEqual(args['max_tool_calls'], 2)
         self.assertEqual(args["model"], "existing")
         self.assertIn("网页是资料", args["instructions"])
 

@@ -53,24 +53,24 @@ class ChatModel:
     def enabled(self):
         return bool(self.config.api_key) and not self.budget.state()[0]
 
-    async def response(self, **kwargs):
+    async def response(self, *, usage_kind='other', **kwargs):
         self.budget.before_request()
         try:
             response = await self._get_client().responses.create(**kwargs)
         except Exception as exc:
             self.budget.failed(exc)
             raise
-        self.budget.record(response, kwargs.get('model', self.config.model))
+        self.budget.record(response, kwargs.get('model', self.config.model), usage_kind)
         return response
 
-    async def completion(self, **kwargs):
+    async def completion(self, *, usage_kind='other', **kwargs):
         self.budget.before_request()
         try:
             response = await self._get_client().chat.completions.create(**kwargs)
         except Exception as exc:
             self.budget.failed(exc)
             raise
-        self.budget.record(response, kwargs.get('model', self.config.model))
+        self.budget.record(response, kwargs.get('model', self.config.model), usage_kind)
         return response
 
     def _get_client(self):
@@ -82,7 +82,7 @@ class ChatModel:
             self._client = AsyncOpenAI(**kwargs)
         return self._client
 
-    async def generate(self, *, instructions, text, image_urls=None, max_tokens=180, model=None, web_search=False):
+    async def generate(self, *, instructions, text, image_urls=None, max_tokens=180, model=None, web_search=False, purpose='chat', reasoning_effort=None):
         self.budget.before_request()
         if not self.enabled:
             raise RuntimeError("Chat API key is missing")
@@ -92,6 +92,7 @@ class ChatModel:
             content = [{"type": "text", "text": text}]
             content.extend({"type": "image_url", "image_url": {"url": url}} for url in (image_urls or [])[:4])
             response = await self.completion(
+                usage_kind=purpose,
                 model=model,
                 messages=[{"role": "system", "content": instructions}, {"role": "user", "content": content}],
                 max_tokens=max_tokens,
@@ -103,8 +104,14 @@ class ChatModel:
         options = {}
         if model.startswith(('gpt-5', 'gpt-6')):
             options['reasoning'] = {'effort': 'low'}
+        if reasoning_effort == 'none' and model == 'gpt-5.6-luna':
+            options['reasoning'] = {'effort': 'none'}
         if web_search:
-            options.update(tools=[{"type": "web_search", "search_context_size": "low"}], tool_choice="auto")
+            try:
+                search_limit = max(1, min(8, int(os.getenv('KLEE_WEB_MAX_CALLS') or '2')))
+            except ValueError:
+                search_limit = 2
+            options.update(tools=[{"type": "web_search", "search_context_size": "low"}], tool_choice="auto", max_tool_calls=search_limit)
             instructions += (
                 f"\n当前 UTC 日期：{datetime.now(timezone.utc).date().isoformat()}。"
                 "你可以按需查询公开网页。用户要求联网、搜索、核实时必须搜索；"
@@ -117,6 +124,7 @@ class ChatModel:
                 "保持 Klee 的中文语气，正文简洁，通常不超过四句话。"
             )
         response = await self.response(
+            usage_kind=purpose,
             model=model, instructions=instructions,
             input=[{"role": "user", "content": content}], max_output_tokens=max_tokens,
             **options,
