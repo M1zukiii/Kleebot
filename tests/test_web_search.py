@@ -40,7 +40,32 @@ class WebSearchTests(unittest.IsolatedAsyncioTestCase):
             ai = KleeAI()
             ai.chat_model.generate = AsyncMock(side_effect=RuntimeError("offline"))
             with patch("builtins.print"):
-                self.assertIn("没能完成查询", await ai.reply(user_name="Alice", message="查一下新闻"))
+                self.assertIn("没能完成回复", await ai.reply(user_name="Alice", message="查一下新闻"))
+
+    async def test_incomplete_reply_is_not_misreported_as_search_or_network_failure(self):
+        from bot.klee_ai import KleeAI
+        from bot.chat_model import IncompleteReply
+        with patch.dict(os.environ, {'CHAT_PROVIDER': 'openai', 'CHAT_API_KEY': 'key'}, clear=True):
+            ai = KleeAI()
+            partial = response('')
+            partial.status = 'incomplete'
+            partial.incomplete_details = NS(reason='max_output_tokens')
+            ai.chat_model.generate = AsyncMock(side_effect=IncompleteReply(partial))
+            with patch('builtins.print'):
+                answer = await ai.reply(user_name='Alice', message='解释这道题')
+            self.assertIn('回答没能生成完整', answer)
+            self.assertNotIn('查询', answer)
+            self.assertNotIn('最新消息', answer)
+
+    async def test_current_reasoning_model_uses_low_effort_with_room_for_final_answer(self):
+        from bot.klee_ai import KleeAI
+        with patch.dict(os.environ, {'CHAT_PROVIDER': 'openai', 'CHAT_API_KEY': 'key', 'CHAT_MODEL': 'gpt-5.6-luna'}, clear=True):
+            ai = KleeAI()
+            create = AsyncMock(return_value=response('题目讲解'))
+            ai.chat_model._client = NS(responses=NS(create=create))
+            await ai.reply(user_name='Alice', message='解释这道题')
+            self.assertEqual(create.call_args.kwargs['reasoning'], {'effort': 'low'})
+            self.assertEqual(create.call_args.kwargs['max_output_tokens'], 2400)
 
     async def test_incomplete_search_answer_is_not_reported_as_verified(self):
         model = ChatModel(ChatConfig("openai", "key", "existing", None, 60))

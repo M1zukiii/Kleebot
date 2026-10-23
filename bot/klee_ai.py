@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import urlparse
 
-from .chat_model import ChatModel
+from .chat_model import ChatModel, IncompleteReply
 from .model_budget import BASIC_MESSAGE
 
 
@@ -151,6 +151,7 @@ class KleeAI:
         if image_urls:
             text_prompt += "\n如果用户附带了图片，请先看图片内容，再自然地一起回应。"
         text_prompt += (
+            '\n讲解题目时可以适当展开步骤，不能为了缩短回复而省略题目条件和关键推导。'
             '\nDiscord 不直接显示 LaTeX。简单公式优先写 Unicode 纯文字，例如 x² + y² = r²；'
             '复杂分式、根式、积分、求和使用 \\[...\\] 包裹，每条公式单独一个块，'
             '程序会把支持的公式转为图片。使用标准数学命令，不把中文解释放入公式；'
@@ -160,7 +161,7 @@ class KleeAI:
         try:
             text = await self.chat_model.generate(
                 instructions=self._system_prompt() + '\n当前这条回复是普通聊天模式，没有在这条回复中执行群管理工具。Klee 已接入管理员任务执行模块，管理员明确委派时可以管理频道、禁言、安排活动和播放音乐。不得声称已经执行这些操作，也不要笼统声称 Klee 没有工具或不能加入语音。具体失败原因、权限和语音状态必须根据真实执行结果；缺少结果时直接说明暂时无法确认，不要猜测。', text=text_prompt,
-                image_urls=image_urls, max_tokens=900 if self.web_search else 180,
+                image_urls=image_urls, max_tokens=2400 if self.chat_model.config.provider == 'openai' else 900,
                 web_search=self.web_search,
             )
         except Exception as exc:
@@ -173,8 +174,12 @@ class KleeAI:
             cause = getattr(exc, "__cause__", None)
             if cause:
                 print(f"klee ai reply cause: {type(cause).__name__}: {cause}", flush=True)
+            if isinstance(exc, IncompleteReply):
+                return "唔，Klee 这次的回答没能生成完整。可以把题目分成几个小问，Klee 一步一步讲给你听。"
+            if type(exc).__name__ in {'APITimeoutError', 'TimeoutError'}:
+                return "唔，这次等回复超时了，请稍后再试一次。"
             if self.web_search:
-                return "唔，Klee 这次没能完成查询，请稍后再试一次；现在还不能确认最新消息哦。"
+                return "唔，Klee 这次没能完成回复，请稍后再试一次。"
             return FALLBACK_REPLY
 
         if not text:
