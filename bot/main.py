@@ -3,6 +3,7 @@ import os
 import re
 import time
 import tempfile
+import signal
 from io import BytesIO
 from pathlib import Path
 from urllib.parse import urlparse
@@ -18,6 +19,7 @@ from .guild_agent import GuildAgent
 from .spam_guard import SpamGuard
 from .diagnostic_controls import DiagnosticControls
 from .diagnostics import explanation
+from .operations import Operations
 from .fact_memory import FactMemory
 from .conversation import ConversationService, ConversationStore
 from .ai_usage import AiUsageStore
@@ -58,6 +60,7 @@ intents.message_content = True
 bot = commands.Bot(command_prefix=PREFIX, intents=intents, help_command=None)
 autonomy = None
 spam_guard = None
+operations = None
 resolver = Resolver()
 klee_ai = KleeAI()
 file_service = FileService(klee_ai.chat_model)
@@ -1389,7 +1392,7 @@ async def prefix_develop(ctx: commands.Context, *, task: str) -> None:
         return
     async with ctx.typing():
         try:
-            result = await request_development(task)
+            result = await operations.submit(ctx,task)
         except (ValueError, RuntimeError) as exc:
             await ctx.send(str(exc))
             return
@@ -1551,7 +1554,9 @@ class _ContextInteraction:
 
 
 async def run_bot():
-    global autonomy, spam_guard
+    global autonomy, spam_guard, operations
+    operations = Operations(bot,DATA_DIR)
+    await bot.add_cog(operations)
     spam_guard = SpamGuard(bot, DATA_DIR)
     await bot.add_cog(spam_guard)
     await bot.add_cog(Moderation(bot))
@@ -1561,7 +1566,28 @@ async def run_bot():
     autonomy = GuildAgent(bot, klee_ai.chat_model, DATA_DIR, player_factory=get_player)
     await bot.add_cog(autonomy)
     await bot.add_cog(DiagnosticControls(bot,klee_ai.diagnostics,autonomy,spam_guard))
-    await bot.start(TOKEN)
+    async def close_client():
+        try:
+            await asyncio.wait_for(operations.shutdown(),timeout=8)
+        except asyncio.TimeoutError:
+            print('shutdown log delivery timed out',flush=True)
+        finally:
+            await bot.close()
+
+    loop=asyncio.get_running_loop()
+    handlers={}
+    def stop_signal(*_):
+        loop.call_soon_threadsafe(lambda: asyncio.create_task(close_client()))
+    for name in ('SIGTERM','SIGBREAK'):
+        if hasattr(signal,name):
+            sig=getattr(signal,name)
+            handlers[sig]=signal.signal(sig,stop_signal)
+    try:
+        await bot.start(TOKEN)
+    finally:
+        await close_client()
+        for sig,handler in handlers.items():
+            signal.signal(sig,handler)
 
 
 if __name__ == "__main__":

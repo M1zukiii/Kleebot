@@ -217,3 +217,21 @@ KLEE_DEVELOPER_PROVIDER to openai (default) or deepseek, and optionally set
 KLEE_DEVELOPER_MODEL. Repair selects bounded relevant tracked source files and
 creates a draft PR; validation remains in a separate job without model secrets.
 The bot cannot verify remote secret configuration or grant itself credentials.
+
+`/开发` assigns a unique receipt ID to the workflow run and persists its origin
+channel. A bounded background poll reports validation success or failure there
+and in the configured operational log channel; restarts do not lose pending
+requests. A successful check still means a draft PR awaiting human review, not
+an installed change. API failures back off and are reported separately from job
+failures. Manual workflow runs without a bot receipt ID are not guessed as a
+user's request.
+
+Use `/日志频道` to explicitly select a text channel in the current guild, or set
+its enabled option to false to disable forwarding. Native manage-server and
+channel-access checks apply. The management agent can connect a requested log
+channel using its dedicated tool; creating a channel alone is insufficient.
+Logs contain startup, normal shutdown, update and development receipts plus
+diagnostic references, never raw chat, console output or credentials. A forced
+kill or power loss cannot send a final shutdown notice; the next startup reports
+that the previous run did not record a normal close. Discord delivery is bounded
+and retried; operational records expire after 14 days and are capped at 1,000.

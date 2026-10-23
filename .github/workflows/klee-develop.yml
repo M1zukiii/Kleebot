@@ -1,10 +1,16 @@
 name: Klee development
+run-name: Klee development ${{ inputs.request_id || github.run_number }}
 on:
   workflow_dispatch:
     inputs:
       task:
         description: Owner development request (creates a draft PR)
         required: true
+        type: string
+      request_id:
+        description: Bot receipt correlation ID
+        required: false
+        default: ''
         type: string
 permissions: {}
 concurrency:
