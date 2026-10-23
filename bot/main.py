@@ -15,6 +15,7 @@ from dotenv import load_dotenv
 from .maintenance import is_owner, request_development, request_update, update_status
 from .moderation import Moderation
 from .guild_agent import GuildAgent
+from .spam_guard import SpamGuard
 from .fact_memory import FactMemory
 from .conversation import ConversationService, ConversationStore
 from .ai_usage import AiUsageStore
@@ -54,6 +55,7 @@ intents.message_content = True
 
 bot = commands.Bot(command_prefix=PREFIX, intents=intents, help_command=None)
 autonomy = None
+spam_guard = None
 resolver = Resolver()
 klee_ai = KleeAI()
 file_service = FileService(klee_ai.chat_model)
@@ -295,7 +297,12 @@ async def on_message(message: discord.Message) -> None:
     if message.author.bot:
         return
     moderation_handled = False
-    if autonomy is not None:
+    if spam_guard is not None:
+        try:
+            moderation_handled = await spam_guard.observe(message)
+        except Exception as exc:
+            print(f'spam guard failed: {type(exc).__name__}', flush=True)
+    if autonomy is not None and not moderation_handled:
         try:
             moderation_handled = await autonomy.observe(message)
         except Exception as exc:
@@ -1522,7 +1529,9 @@ class _ContextInteraction:
 
 
 async def run_bot():
-    global autonomy
+    global autonomy, spam_guard
+    spam_guard = SpamGuard(bot, DATA_DIR)
+    await bot.add_cog(spam_guard)
     await bot.add_cog(Moderation(bot))
     await bot.add_cog(BudgetControls(klee_ai.chat_model.budget))
     await bot.add_cog(MathCommands())
