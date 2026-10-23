@@ -217,3 +217,5 @@ KLEE_DEVELOPER_PROVIDER to openai (default) or deepseek, and optionally set
 KLEE_DEVELOPER_MODEL. Repair selects bounded relevant tracked source files and
 creates a draft PR; validation remains in a separate job without model secrets.
 The bot cannot verify remote secret configuration or grant itself credentials.
+
+If `/开发` returns HTTP 403 `Resource not accessible by personal access token`, verify that the fine-grained GitHub token selects this repository under **Only select repositories** and has **Repository permissions → Actions** set to **Read and write**. Store the token locally as `KLEE_GITHUB_ACTIONS_TOKEN`, not as the OpenAI API key.
