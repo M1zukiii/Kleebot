@@ -11,9 +11,9 @@ class SlashIntegrationTests(unittest.TestCase):
     def test_every_prefix_function_has_a_registered_slash_entry_and_file_options(self):
         script = '''
 import asyncio,json
-from bot.main import bot,Moderation,GuildAgent,BudgetControls,MathCommands,FileCommands,file_service,conversations,klee_ai,DATA_DIR,get_player
+from bot.main import bot,Moderation,GuildAgent,SpamGuard,BudgetControls,MathCommands,FileCommands,file_service,conversations,klee_ai,DATA_DIR,get_player
 async def main():
-    for cog in (Moderation(bot),GuildAgent(bot,klee_ai.chat_model,DATA_DIR,player_factory=get_player),BudgetControls(klee_ai.chat_model.budget),MathCommands(),FileCommands(file_service,conversations)):
+    for cog in (Moderation(bot),SpamGuard(bot,DATA_DIR),GuildAgent(bot,klee_ai.chat_model,DATA_DIR,player_factory=get_player),BudgetControls(klee_ai.chat_model.budget),MathCommands(),FileCommands(file_service,conversations)):
         await bot.add_cog(cog)
     commands={c.name:c for c in bot.tree.get_commands()}
     equivalents={'timeout':'禁言','untimeout':'解除禁言','qiuqian':'求签'}
@@ -29,7 +29,7 @@ asyncio.run(main())
         self.assertEqual(result.returncode, 0, result.stderr)
         state = json.loads(result.stdout)
         self.assertEqual(state['missing'], [])
-        for name in ('开发','更新','更新状态','清除聊天','读文件','生成文件','公式','额度状态'):
+        for name in ('开发','更新','更新状态','清除聊天','读文件','生成文件','公式','额度状态','防刷屏设置','防刷屏状态'):
             self.assertIn(name, state['names'])
         self.assertEqual(state['options']['读文件'][0]['type'], 11)  # native Attachment option
         formats = next(option['choices'] for option in state['options']['生成文件'] if option['name'] == '格式')
