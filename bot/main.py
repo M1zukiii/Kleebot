@@ -31,7 +31,7 @@ from .fortune_cooldown import FortuneCooldownStore
 from .klee_ai import FALLBACK_REPLY, KleeAI
 from .player import GuildPlayer
 from .math_reply import MathCommands, send_math_reply
-from .file_service import FileService, requested_format
+from .file_service import FileCommands, FileService, requested_format
 from .budget_controls import BudgetControls
 from .resolver import Resolver
 from .afk import DEFAULT_AFK_REASON, AfkStore
@@ -1360,7 +1360,8 @@ async def prefix_promptgen(ctx: commands.Context, *, prompt: str) -> None:
     await ctx.send(f"```text\n{generated[:1800]}\n```")
 
 
-@bot.command(name="develop", aliases=["开发"])
+@bot.hybrid_command(name="开发", aliases=["develop"], description="提交自维护开发需求，生成 GitHub 草稿修改（仅所有者）。")
+@app_commands.describe(task="要修复的问题或开发需求，最多4000字。")
 async def prefix_develop(ctx: commands.Context, *, task: str) -> None:
     if not is_owner(ctx.author.id):
         await ctx.send("这个指令只开放给配置的主人。")
@@ -1377,7 +1378,7 @@ async def prefix_develop(ctx: commands.Context, *, task: str) -> None:
     await ctx.send(result, allowed_mentions=discord.AllowedMentions.none())
 
 
-@bot.command(name="update", aliases=["更新"])
+@bot.hybrid_command(name="更新", aliases=["update"], description="请求检查 main 分支、测试并安装新版（仅所有者）。")
 async def prefix_update(ctx: commands.Context) -> None:
     if not is_owner(ctx.author.id):
         await ctx.send("这个指令只开放给配置的主人。")
@@ -1386,10 +1387,10 @@ async def prefix_update(ctx: commands.Context) -> None:
         await ctx.send("当前是普通本机模式，请先停止 Klee，再双击 start-maintained.cmd 启用自维护。")
         return
     request_update(DATA_DIR)
-    await ctx.send("已提交更新检查请求。更新程序会检查 main、测试新版并重启；结果请看 !更新状态。")
+    await ctx.send("已提交更新检查请求。更新程序会检查 main、测试新版并重启；结果请看 /更新状态。")
 
 
-@bot.command(name="updatestatus", aliases=["更新状态"])
+@bot.hybrid_command(name="更新状态", aliases=["updatestatus"], description="查看当前部署版本和最近更新结果（仅所有者）。")
 async def prefix_update_status(ctx: commands.Context) -> None:
     if not is_owner(ctx.author.id):
         await ctx.send("这个指令只开放给配置的主人。")
@@ -1397,12 +1398,15 @@ async def prefix_update_status(ctx: commands.Context) -> None:
     await ctx.send(update_status(DATA_DIR), allowed_mentions=discord.AllowedMentions.none())
 
 
-@bot.command(name="forgetchat", aliases=["清除聊天"])
+@bot.hybrid_command(name="清除聊天", aliases=["forgetchat"], description="清除本频道的近期聊天和人物记忆，需要管理消息权限。")
 async def prefix_forgetchat(ctx: commands.Context) -> None:
     if ctx.guild and not ctx.channel.permissions_for(ctx.author).manage_messages:
         await ctx.send("清除频道聊天记录需要管理消息权限。")
         return
+    if ctx.interaction:
+        await ctx.defer(ephemeral=True)
     await conversations.clear(ctx.channel.id)
+    file_service.clear_context(ctx.channel.id)
     await ctx.send("Klee 已清除这个频道的聊天记录和独立人物记忆。")
 
 
@@ -1522,6 +1526,7 @@ async def run_bot():
     await bot.add_cog(Moderation(bot))
     await bot.add_cog(BudgetControls(klee_ai.chat_model.budget))
     await bot.add_cog(MathCommands())
+    await bot.add_cog(FileCommands(file_service, conversations))
     autonomy = GuildAgent(bot, klee_ai.chat_model, DATA_DIR, player_factory=get_player)
     await bot.add_cog(autonomy)
     await bot.start(TOKEN)
