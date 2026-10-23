@@ -34,6 +34,8 @@ class GuildAgent(commands.Cog):
     async def observe(self, message):
         if message.guild is None or message.author.bot or self.bot.user not in message.mentions:
             return False
+        if not self.chat.enabled:
+            return False
         goal = await asyncio.to_thread(self.store.goal, message.guild.id)
         staff = is_staff(message.author)
         if (not goal or not goal['enabled']) and not staff:

@@ -7,6 +7,7 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 from .chat_model import ChatModel
+from .model_budget import BASIC_MESSAGE
 
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -132,6 +133,8 @@ class KleeAI:
         video_metadata: list[str] | None = None,
     ) -> str:
         if not self.chat_model.enabled:
+            if self.chat_model.budget.state()[0]:
+                return BASIC_MESSAGE
             return FALLBACK_REPLY
 
         context_text = "\n".join(context or [])
@@ -147,6 +150,12 @@ class KleeAI:
             text_prompt += "\n\n".join(video_metadata)
         if image_urls:
             text_prompt += "\n如果用户附带了图片，请先看图片内容，再自然地一起回应。"
+        text_prompt += (
+            '\nDiscord 不直接显示 LaTeX。简单公式优先写 Unicode 纯文字，例如 x² + y² = r²；'
+            '复杂分式、根式、积分、求和使用 \\[...\\] 包裹，每条公式单独一个块，'
+            '程序会把支持的公式转为图片。使用标准数学命令，不把中文解释放入公式；'
+            '不使用完整 LaTeX 文档、导入宏包或自定义宏。解释文字放在公式块之外。'
+        )
 
         try:
             text = await self.chat_model.generate(
@@ -155,6 +164,8 @@ class KleeAI:
                 web_search=self.web_search,
             )
         except Exception as exc:
+            if self.chat_model.budget.state()[0]:
+                return BASIC_MESSAGE
             print(
                 f"klee ai reply failed: {type(exc).__name__}: {exc}; {self.config_summary()}",
                 flush=True,
@@ -187,6 +198,7 @@ class KleeAI:
         aspect: str | None = None,
         negative_prompt: str | None = None,
     ) -> GeneratedImage:
+        self.chat_model.budget.before_request()
         if self.image_provider == "novelai":
             return await self._generate_novelai_image(
                 prompt=prompt,

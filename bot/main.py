@@ -30,6 +30,9 @@ from .fortune import (
 from .fortune_cooldown import FortuneCooldownStore
 from .klee_ai import FALLBACK_REPLY, KleeAI
 from .player import GuildPlayer
+from .math_reply import MathCommands, send_math_reply
+from .file_service import FileService, requested_format
+from .budget_controls import BudgetControls
 from .resolver import Resolver
 from .afk import DEFAULT_AFK_REASON, AfkStore
 from .stats import ProfileStatsStore
@@ -53,6 +56,7 @@ bot = commands.Bot(command_prefix=PREFIX, intents=intents, help_command=None)
 autonomy = None
 resolver = Resolver()
 klee_ai = KleeAI()
+file_service = FileService(klee_ai.chat_model)
 players: dict[int, GuildPlayer] = {}
 BASE_DIR = Path(__file__).resolve().parent.parent
 ASSETS_DIR = BASE_DIR / "assets"
@@ -332,7 +336,21 @@ async def on_message(message: discord.Message) -> None:
                 await message.reply(f"{message.author.mention} {VISION_LIMIT_MESSAGE}")
                 return
         video_metadata = await video_metadata_for_prompt(extract_video_urls(mention_text))
+        document_context = await file_service.read_attachments(message.attachments)
+        document_context = file_service.document_context((message.guild.id if message.guild else None, message.channel.id, message.author.id), mention_text, document_context)
+        if await file_service.basic_extract(message, document_context):
+            await bot.process_commands(message)
+            return
+        generation_context = document_context
+        if requested_format(mention_text):
+            recent_chat = await asyncio.to_thread(conversations.store.context, message.channel.id)
+            if recent_chat:
+                generation_context += '\n最近频道对话（仅供本次生成参考）：\n' + '\n'.join(recent_chat)
+        if await file_service.send_generated(message, mention_text, generation_context):
+            await bot.process_commands(message)
+            return
         reply = await conversations.reply(
+            document_context=document_context,
             task_receipt=await asyncio.to_thread(autonomy.store.last_manager_reply, message.guild.id, message.author.id, message.channel.id) if autonomy is not None and message.guild else '',
             channel_id=message.channel.id,
             user_id=message.author.id,
@@ -347,7 +365,7 @@ async def on_message(message: discord.Message) -> None:
             image_urls=image_urls,
             video_metadata=video_metadata,
         )
-        await message.reply(f"{message.author.mention} {reply}")
+        await send_math_reply(message, reply)
     await bot.process_commands(message)
 
 
@@ -1502,6 +1520,8 @@ class _ContextInteraction:
 async def run_bot():
     global autonomy
     await bot.add_cog(Moderation(bot))
+    await bot.add_cog(BudgetControls(klee_ai.chat_model.budget))
+    await bot.add_cog(MathCommands())
     autonomy = GuildAgent(bot, klee_ai.chat_model, DATA_DIR, player_factory=get_player)
     await bot.add_cog(autonomy)
     await bot.start(TOKEN)
