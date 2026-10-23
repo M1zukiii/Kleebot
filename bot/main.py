@@ -13,6 +13,7 @@ from discord.ext import commands, tasks
 from dotenv import load_dotenv
 
 from .maintenance import is_owner, request_development, request_update, update_status
+from .moderation import Moderation
 from .fact_memory import FactMemory
 from .conversation import ConversationService, ConversationStore
 from .ai_usage import AiUsageStore
@@ -105,6 +106,8 @@ VISION_LIMIT_MESSAGE = "荣誉骑士今天让 Klee 看太多图片啦，Klee 的
 IMAGE_LIMIT_MESSAGE = "荣誉骑士今天已经让 Klee 画过图啦，画笔要休息到明天哦~"
 
 DEFAULT_HELP_TEXT = """Kleebot 指令：
+`/禁言 成员 分钟 原因` 或 `!禁言 @成员 分钟 原因` — 公开显示禁言时长、解除时间和原因。
+`/解除禁言 成员 原因` 或 `!解除禁言 @成员 原因` — 提前解除禁言并公开原因。
 `/play` / `/播放` 播放 YouTube / B站 / NicoNico / Spotify 链接，或直接搜索歌曲
 `/join` / `/加入` 加入你所在的语音频道
 `/queue` / `/队列` 查看当前播放队列
@@ -301,7 +304,7 @@ async def on_message(message: discord.Message) -> None:
             )
             break
 
-    if bot.user and bot.user in message.mentions:
+    if bot.user and bot.user in message.mentions and not message.content.startswith(PREFIX):
         mention_text = message.content
         for mention in (bot.user.mention, f"<@!{bot.user.id}>"):
             mention_text = mention_text.replace(mention, "")
@@ -1487,6 +1490,11 @@ class _ContextInteraction:
         self.followup = _ContextFollowup(ctx)
 
 
+async def run_bot():
+    await bot.add_cog(Moderation(bot))
+    await bot.start(TOKEN)
+
+
 if __name__ == "__main__":
     DATA_DIR.mkdir(parents=True, exist_ok=True)
-    asyncio.run(bot.start(TOKEN))
+    asyncio.run(run_bot())
