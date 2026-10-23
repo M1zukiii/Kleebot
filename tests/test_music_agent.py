@@ -4,7 +4,8 @@ import unittest
 from unittest.mock import AsyncMock, Mock, patch
 
 from bot.player import GuildPlayer, ffmpeg_executable
-from bot.resolver import Resolver, Track
+from bot.resolver import Resolver, Track, ResolutionError
+from yt_dlp.utils import DownloadError
 
 
 class MusicTests(unittest.IsolatedAsyncioTestCase):
@@ -30,6 +31,19 @@ class MusicTests(unittest.IsolatedAsyncioTestCase):
         with patch('bot.player.shutil.which', return_value=None), patch.dict('os.environ', {'FFMPEG_EXECUTABLE': 'missing.exe'}):
             with self.assertRaisesRegex(RuntimeError, '路径不存在'):
                 ffmpeg_executable()
+
+    def test_source_errors_are_not_swallowed_as_empty_search_results(self):
+        resolver = Resolver()
+        with patch('bot.resolver.yt_dlp.YoutubeDL') as ydl:
+            extract = ydl.return_value.__enter__.return_value.extract_info
+            extract.side_effect = DownloadError('HTTP Error 412: Precondition Failed')
+            with self.assertRaisesRegex(DownloadError, '412'):
+                resolver._resolve_sync('bilisearch1:雨爱', 'user')
+            self.assertFalse(ydl.call_args.args[0]['ignoreerrors'])
+            extract.side_effect = None
+            extract.return_value = {'entries': []}
+            with self.assertRaisesRegex(ResolutionError, '没有返回可播放'):
+                resolver._resolve_sync('bilisearch1:雨爱', 'user')
 
     async def test_failed_start_does_not_leave_queued_or_current_track(self):
         track = Track('雨爱', 'https://example.org/v', 'audio', None, 'user', {})

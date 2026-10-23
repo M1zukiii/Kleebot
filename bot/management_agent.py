@@ -13,6 +13,7 @@ from yt_dlp.utils import DownloadError
 from .agent_model import ToolModel
 from .mention_router import is_staff
 from .moderation import ModerationError, apply_timeout, publish_receipt
+from .resolver import ResolutionError
 
 
 PROMPT = '''You are Klee's server-management agent. Carry out ONLY the authenticated manager's current request.
@@ -243,6 +244,8 @@ class ManagementAgent:
                 if '412' in str(exc) and ('bilisearch' in query or 'bilibili.com' in query):
                     raise ModerationError('B站暂时拒绝了搜索或读取请求（HTTP 412），没有加入播放队列。请稍后再试，或提供具体 BV 视频链接。') from exc
                 raise ModerationError('音乐来源暂时无法解析，没有加入播放队列。请提供具体视频链接再试。') from exc
+            except ResolutionError as exc:
+                raise ModerationError(str(exc)) from exc
             return {'ok': True, 'message': f'已加入播放队列：{track.title}'}
         raise ModerationError('此工具尚未实现。')
 

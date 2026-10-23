@@ -15,6 +15,10 @@ import yt_dlp
 from yt_dlp.utils import DownloadError
 
 
+class ResolutionError(RuntimeError):
+    """A completed media lookup returned no usable track, before queue mutation."""
+
+
 @dataclass
 class Track:
     title: str
@@ -134,7 +138,7 @@ class Resolver:
         options: dict[str, Any] = {
             "format": "bestaudio/best",
             "noplaylist": True,
-            "ignoreerrors": True,
+            "ignoreerrors": False,
             "quiet": True,
             "no_warnings": True,
             "default_search": "auto",
@@ -157,16 +161,16 @@ class Resolver:
             raise
 
         if data is None:
-            raise RuntimeError("No result found.")
+            raise ResolutionError("没有找到对应的音乐结果。")
         if "entries" in data:
             entries = [entry for entry in data["entries"] if entry]
             if not entries:
-                raise RuntimeError("No playable entries found.")
+                raise ResolutionError("搜索没有返回可播放的视频，请提供具体视频链接。")
             data = entries[0]
 
         stream_url = data.get("url")
         if not stream_url:
-            raise RuntimeError("yt-dlp did not return an audio stream URL.")
+            raise ResolutionError("视频没有返回可播放的音频地址。")
 
         if self._should_download_before_playback(data):
             return self._download_media_sync(target, original_query, requester, options)
