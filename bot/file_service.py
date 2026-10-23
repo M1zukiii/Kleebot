@@ -269,6 +269,11 @@ class FileService:
         return await asyncio.to_thread(build_artifact, json.loads(raw), extension)
 
     async def send_generated(self, message, request, context='', *, extension=None):
+        from .token_guard import excessive_request
+        limit_reason = excessive_request(request)
+        if limit_reason:
+            await message.reply('⚠️ Klee 提醒：'+limit_reason+'这次已拦截，不调用模型。', allowed_mentions=discord.AllowedMentions.none())
+            return True
         extension = extension or requested_format(request)
         if extension is None:
             return False

@@ -16,6 +16,8 @@ class AgentStore:
             db.execute('CREATE TABLE IF NOT EXISTS agent_actions (id INTEGER PRIMARY KEY AUTOINCREMENT, guild TEXT, tool TEXT, detail TEXT, state TEXT, stamp REAL)')
             db.execute('CREATE TABLE IF NOT EXISTS manager_tasks (guild TEXT, channel TEXT, actor TEXT, detail TEXT, stamp REAL, PRIMARY KEY(guild,channel,actor))')
             db.execute('CREATE TABLE IF NOT EXISTS mention_penalties (message TEXT PRIMARY KEY, guild TEXT, member TEXT, minutes INTEGER, state TEXT, stamp REAL)')
+            db.execute('CREATE TABLE IF NOT EXISTS token_penalties (message TEXT PRIMARY KEY, guild TEXT, member TEXT, minutes INTEGER, state TEXT, stamp REAL)')
+            db.execute('CREATE TABLE IF NOT EXISTS token_warnings (message TEXT PRIMARY KEY, guild TEXT, member TEXT, stamp REAL)')
 
     @contextmanager
     def connect(self):
@@ -37,25 +39,41 @@ class AgentStore:
             row = db.execute('SELECT * FROM goals WHERE guild=?', (str(guild),)).fetchone()
         return dict(row) if row else None
 
-    def mention_strikes(self, guild, member):
+    def mention_strikes(self, guild, member, kind='mention'):
+        table = 'token_penalties' if kind == 'token' else 'mention_penalties'
         with self.connect() as db:
-            return [dict(row) for row in db.execute("SELECT minutes,stamp FROM mention_penalties WHERE guild=? AND member=? AND state='applied' AND stamp>? ORDER BY stamp",
+            return [dict(row) for row in db.execute(f"SELECT minutes,stamp FROM {table} WHERE guild=? AND member=? AND state='applied' AND stamp>? ORDER BY stamp",
                 (str(guild), str(member), time.time()-86400))]
 
-    def reserve_mention(self, guild, member, message, minutes):
+    def reserve_mention(self, guild, member, message, minutes, kind='mention'):
+        table = 'token_penalties' if kind == 'token' else 'mention_penalties'
         with self.connect() as db:
-            db.execute('DELETE FROM mention_penalties WHERE stamp<?', (time.time()-7*86400,))
-            result = db.execute('INSERT OR IGNORE INTO mention_penalties VALUES(?,?,?,?,?,?)',
+            db.execute(f'DELETE FROM {table} WHERE stamp<?', (time.time()-7*86400,))
+            result = db.execute(f'INSERT OR IGNORE INTO {table} VALUES(?,?,?,?,?,?)',
                 (str(message), str(guild), str(member), minutes, 'pending', time.time()))
             return bool(result.rowcount)
 
-    def finish_mention(self, message, state):
+    def finish_mention(self, message, state, kind='mention'):
+        table = 'token_penalties' if kind == 'token' else 'mention_penalties'
         with self.connect() as db:
-            db.execute('UPDATE mention_penalties SET state=?,stamp=? WHERE message=?', (state, time.time(), str(message)))
+            db.execute(f'UPDATE {table} SET state=?,stamp=? WHERE message=?', (state, time.time(), str(message)))
 
     def mention_interrupted(self, guild):
         with self.connect() as db:
-            return bool(db.execute("SELECT 1 FROM mention_penalties WHERE guild=? AND state IN ('pending','uncertain') LIMIT 1", (str(guild),)).fetchone())
+            return any(db.execute(f"SELECT 1 FROM {table} WHERE guild=? AND state IN ('pending','uncertain') LIMIT 1", (str(guild),)).fetchone()
+                       for table in ('mention_penalties', 'token_penalties'))
+
+    def token_warning(self, guild, member):
+        with self.connect() as db:
+            row = db.execute('SELECT message,stamp FROM token_warnings WHERE guild=? AND member=? AND stamp>? ORDER BY stamp DESC LIMIT 1',
+                             (str(guild), str(member), time.time()-86400)).fetchone()
+        return dict(row) if row else None
+
+    def add_token_warning(self, guild, member, message):
+        with self.connect() as db:
+            db.execute('DELETE FROM token_warnings WHERE stamp<?', (time.time()-7*86400,))
+            db.execute('INSERT OR IGNORE INTO token_warnings VALUES(?,?,?,?)',
+                       (str(message), str(guild), str(member), time.time()))
 
     def goals(self):
         with self.connect() as db:

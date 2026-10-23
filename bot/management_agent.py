@@ -223,31 +223,41 @@ class ManagementAgent:
             guild.voice_client.stop()
             return {'ok': True, 'message': '已停止音乐并清空队列'}
         if name == 'play_music':
-            if self.player_factory is None:
-                raise ModerationError('音乐工具尚未连接。')
-            voice = getattr(actor, 'voice', None)
-            if voice is None or voice.channel is None:
-                raise ModerationError('请管理者先加入想放歌的语音频道。')
-            await self.authorize(message, 'connect', voice.channel)
-            await self.authorize(message, 'speak', voice.channel)
-            query = self.text(args['query'], 500)
-            if re.search(r'b站|哔哩哔哩|bilibili', message.content, re.I):
-                if re.match(r'https?://', query, re.I):
-                    host = (urlparse(query).hostname or '').lower()
-                    if host not in {'bilibili.com', 'b23.tv'} and not host.endswith('.bilibili.com'):
-                        raise ModerationError('原请求指定了B站，请使用B站搜索或具体B站视频链接。')
-                elif not re.match(r'bilisearch', query, re.I):
-                    query = 'bilisearch1:' + re.sub(r'^ytsearch\d*:', '', query)
-            try:
-                track = await self.player_factory(guild).enqueue(SimpleNamespace(guild=guild, user=actor), query)
-            except DownloadError as exc:
-                if '412' in str(exc) and ('bilisearch' in query or 'bilibili.com' in query):
-                    raise ModerationError('B站暂时拒绝了搜索或读取请求（HTTP 412），没有加入播放队列。请稍后再试，或提供具体 BV 视频链接。') from exc
-                raise ModerationError('音乐来源暂时无法解析，没有加入播放队列。请提供具体视频链接再试。') from exc
-            except ResolutionError as exc:
-                raise ModerationError(str(exc)) from exc
-            return {'ok': True, 'message': f'已加入播放队列：{track.title}'}
+            return await self.play_public_music(message, args['query'])
         raise ModerationError('此工具尚未实现。')
+
+    async def play_public_music(self, message, query):
+        guild = message.guild
+        if guild is None:
+            raise ModerationError('请在服务器内播放。')
+        actor = await guild.fetch_member(message.author.id)
+        bot_member = await guild.fetch_member(self.bot.user.id)
+        if self.player_factory is None:
+            raise ModerationError('音乐工具尚未连接。')
+        voice = getattr(actor, 'voice', None)
+        if voice is None or voice.channel is None:
+            raise ModerationError('请先加入想放歌的语音频道。')
+        for member in (actor, bot_member):
+            permissions = voice.channel.permissions_for(member)
+            if not (permissions.view_channel and permissions.connect and permissions.speak):
+                raise ModerationError('你和Klee需要目标语音频道的查看、连接和语音发言权限。')
+        query = self.text(query, 500)
+        if re.search(r'b站|哔哩哔哩|bilibili', message.content, re.I):
+            if re.match(r'https?://', query, re.I):
+                host = (urlparse(query).hostname or '').lower()
+                if host not in {'bilibili.com', 'b23.tv'} and not host.endswith('.bilibili.com'):
+                    raise ModerationError('原请求指定了B站，请使用B站搜索或具体B站视频链接。')
+            elif not re.match(r'bilisearch', query, re.I):
+                query = 'bilisearch1:' + re.sub(r'^ytsearch\d*:', '', query)
+        try:
+            track = await self.player_factory(guild).enqueue(SimpleNamespace(guild=guild, user=actor), query)
+        except DownloadError as exc:
+            if '412' in str(exc) and ('bilisearch' in query or 'bilibili.com' in query):
+                raise ModerationError('B站暂时拒绝了搜索或读取请求（HTTP 412），没有加入播放队列。请稍后再试，或提供具体 BV 视频链接。') from exc
+            raise ModerationError('音乐来源暂时无法解析，没有加入播放队列。请提供具体视频链接再试。') from exc
+        except ResolutionError as exc:
+            raise ModerationError(str(exc)) from exc
+        return {'ok': True, 'message': f'已加入播放队列：{track.title}'}
 
     async def continued_message(self, message, task):
         """Re-read genuine source messages; model history never grants permissions."""

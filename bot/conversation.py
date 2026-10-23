@@ -72,6 +72,10 @@ class ConversationService:
         return lock
 
     async def reply(self, *, channel_id, user_id, user_name, message, image_urls=None, video_metadata=None, mentioned_users=(), user_aliases=(), task_receipt='', document_context=''):
+        from .token_guard import excessive_request
+        limit_reason = excessive_request(message)
+        if limit_reason:
+            return '⚠️ Klee 提醒：'+limit_reason+'这次已拦截，不调用模型。'
         from .klee_ai import FALLBACK_REPLY
         async with self._lock(channel_id):
             from .fact_memory import render_mentions

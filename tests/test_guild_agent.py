@@ -131,6 +131,16 @@ class GuildAgentTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(await self.agent.observe(self.message))
         self.agent.management.run.assert_not_awaited()
 
+    async def test_nonstaff_music_works_with_moderation_paused_without_agent(self):
+        self.agent.store.pause(10)
+        self.message.reply=AsyncMock()
+        self.agent.router.classify.return_value={'route':'music','query':'雨爱'}
+        self.agent.management.play_public_music=AsyncMock(return_value={'ok':True,'message':'已加入播放队列：雨爱'})
+        self.assertTrue(await self.agent.observe(self.message))
+        self.agent.management.play_public_music.assert_awaited_once_with(self.message,'雨爱')
+        self.agent.management.run.assert_not_awaited()
+        self.assertIn('雨爱',self.message.reply.await_args.args[0])
+
     async def test_staff_task_invokes_agent(self):
         self.message.author = self.owner
         self.agent.router.classify.return_value = {'route': 'agent', 'reason': ''}
