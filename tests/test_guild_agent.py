@@ -28,14 +28,16 @@ class GuildAgentTests(unittest.IsolatedAsyncioTestCase):
         self.target = person(2, self.guild, 1)
         self.bot_member = person(3, self.guild, 10, True, True)
         self.guild.me = self.bot_member
+        self.bot_user = SimpleNamespace(id=3)
         members = {p.id: p for p in (self.owner, self.target, self.bot_member)}
         self.guild.fetch_member = AsyncMock(side_effect=lambda uid: members[uid])
         self.permissions = SimpleNamespace(view_channel=True, read_message_history=True, send_messages=True, embed_links=True)
-        self.message = SimpleNamespace(id=400, author=self.target, content='重复刷屏', created_at=datetime.now(timezone.utc))
+        self.message = SimpleNamespace(id=400, author=self.target, content='重复刷屏', created_at=datetime.now(timezone.utc), mentions=[self.bot_user], guild=self.guild)
         self.channel = SimpleNamespace(id=50, guild=self.guild, permissions_for=lambda _: self.permissions,
                                        fetch_message=AsyncMock(return_value=self.message), send=AsyncMock())
         self.bot = SimpleNamespace(command_prefix='!', get_channel=lambda uid: self.channel if uid == 50 else None,
-                                   get_guild=lambda uid: self.guild if uid == 10 else None)
+                                   get_guild=lambda uid: self.guild if uid == 10 else None, user=self.bot_user)
+        self.message.channel = self.channel
         self.agent = GuildAgent(self.bot, SimpleNamespace(enabled=True), self.data)
         self.agent.store.set_goal(10, 1, 50, '多次警告仍刷屏才禁言60秒')
         self.args = {'member_id': '2', 'channel_id': '50', 'message_id': '400', 'reason': '警告后仍重复刷屏'}
@@ -58,6 +60,33 @@ class GuildAgentTests(unittest.IsolatedAsyncioTestCase):
             await self.execute('timeout_member')
         self.target.timeout.assert_not_awaited()
         self.channel.send.assert_not_awaited()
+
+    async def test_non_mentions_never_record_or_invoke_model(self):
+        self.message.mentions = []
+        self.agent.model = SimpleNamespace(step=AsyncMock())
+        self.assertFalse(await self.agent.observe(self.message))
+        self.assertEqual(self.agent.store.observations(10), [])
+        self.agent.model.step.assert_not_awaited()
+
+    async def test_actual_mention_is_checked_immediately(self):
+        self.agent.model = SimpleNamespace(step=AsyncMock(return_value=([], 'normal chat')), result=Mock())
+        self.assertFalse(await self.agent.observe(self.message))
+        self.agent.model.step.assert_awaited_once()
+        self.assertEqual(len(self.agent.store.observations(10)), 1)
+
+    async def test_executor_rejects_unmentioned_evidence(self):
+        self.message.mentions = []
+        with self.assertRaisesRegex(ModerationError, '@Klee'):
+            await self.execute('warn_member')
+        self.channel.send.assert_not_awaited()
+
+    async def test_guild_owner_can_receive_warning_but_never_timeout(self):
+        self.message.author = self.owner
+        self.args['member_id'] = '1'
+        result = await self.execute('warn_member')
+        self.assertTrue(result['ok'])
+        self.channel.send.assert_awaited_once()
+        self.owner.timeout.assert_not_awaited()
 
     async def test_success_after_three_warnings_is_exactly_sixty_seconds(self):
         self.seed_warnings()

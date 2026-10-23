@@ -290,9 +290,10 @@ async def on_ready() -> None:
 async def on_message(message: discord.Message) -> None:
     if message.author.bot:
         return
+    moderation_handled = False
     if autonomy is not None:
         try:
-            await autonomy.observe(message)
+            moderation_handled = await autonomy.observe(message)
         except Exception as exc:
             print(f'agent observation failed: {type(exc).__name__}', flush=True)
 
@@ -311,7 +312,7 @@ async def on_message(message: discord.Message) -> None:
             )
             break
 
-    if bot.user and bot.user in message.mentions and not message.content.startswith(PREFIX):
+    if bot.user and bot.user in message.mentions and not message.content.startswith(PREFIX) and not moderation_handled:
         mention_text = message.content
         for mention in (bot.user.mention, f"<@!{bot.user.id}>"):
             mention_text = mention_text.replace(mention, "")
