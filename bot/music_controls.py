@@ -164,7 +164,7 @@ class MusicControls(commands.Cog):
                     pass
             player.panel_message = None
         embed = self.embed(player)
-        player.panel_message = await channel.send(embed=embed, view=self.view, allowed_mentions=discord.AllowedMentions.none())
+        player.panel_message = await channel.send(embed=embed, view=self.view, silent=True, allowed_mentions=discord.AllowedMentions.none())
         player.panel_state = str(embed.to_dict())
 
     async def refresh(self, player, force=False):

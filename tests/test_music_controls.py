@@ -152,6 +152,7 @@ class MusicControlTests(unittest.IsolatedAsyncioTestCase):
         message.delete.assert_awaited_once()
         self.assertEqual(channel.send.await_count, 2)
         self.assertEqual(channel.send.call_args.kwargs['allowed_mentions'].to_dict()['parse'], [])
+        self.assertTrue(channel.send.call_args.kwargs['silent'])
         self.assertTrue(self.service.view.is_persistent())
 
 
