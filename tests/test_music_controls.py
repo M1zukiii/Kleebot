@@ -1,7 +1,11 @@
 import asyncio
+from pathlib import Path
+import tempfile
 from types import SimpleNamespace as NS
 import unittest
-from unittest.mock import AsyncMock, Mock, patch
+from unittest.mock import AsyncMock, MagicMock, Mock, patch
+
+import discord
 
 from bot.music_controls import MusicControls
 from bot.player import GuildPlayer
@@ -154,6 +158,53 @@ class MusicControlTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(channel.send.call_args.kwargs['allowed_mentions'].to_dict()['parse'], [])
         self.assertTrue(channel.send.call_args.kwargs['silent'])
         self.assertTrue(self.service.view.is_persistent())
+
+    async def test_stay_survives_restart_and_bypasses_idle_and_alone(self):
+        with tempfile.TemporaryDirectory() as directory:
+            service = MusicControls(self.bot, lambda _:self.player, {1:self.player}, Path(directory))
+            service.set_stay(1,5)
+            restarted = MusicControls(self.bot, lambda _:self.player, {1:self.player}, Path(directory))
+            self.assertEqual(restarted.stay, {'1':5})
+            self.channel.members = []
+            self.player.idle_since = self.player.alone_since = 0
+            await restarted.check_voice(self.guild,self.player,10000)
+            self.vc.disconnect.assert_not_awaited()
+            self.assertIn('常驻已开启',restarted.embed(self.player).footer.text)
+            restarted.set_stay(1,None)
+            await restarted.check_voice(self.guild,self.player,10000)
+            await restarted.check_voice(self.guild,self.player,10060)
+            self.vc.disconnect.assert_awaited_once()
+            loaded = MusicControls(self.bot, lambda _:self.player, {}, Path(directory))
+            self.assertEqual(loaded.stay,{})
+
+    async def test_stay_reconnects_with_self_deaf_and_rate_limits_failures(self):
+        channel = MagicMock(spec=discord.VoiceChannel)
+        channel.connect = AsyncMock()
+        channel.permissions_for.return_value = NS(view_channel=True,connect=True)
+        self.guild.get_channel = Mock(return_value=channel)
+        self.guild.voice_client = None
+        self.service.set_stay(1,5)
+        await self.service.check_voice(self.guild,self.player,0)
+        channel.connect.assert_awaited_once_with(self_deaf=True,timeout=15)
+        await self.service.check_voice(self.guild,self.player,59)
+        self.assertEqual(channel.connect.await_count,1)
+        await self.service.check_voice(self.guild,self.player,60)
+        self.assertEqual(channel.connect.await_count,2)
+        channel.permissions_for.return_value.connect = False
+        await self.service.check_voice(self.guild,self.player,120)
+        self.assertEqual(channel.connect.await_count,2)
+
+    async def test_stay_command_requires_same_channel_and_leave_cancels_it(self):
+        interaction = self.interaction()
+        self.member.voice.channel = NS(id=99)
+        await self.service.stay_voice.callback(self.service,interaction,True)
+        self.assertFalse(self.service.stay)
+        self.member.voice.channel = self.channel
+        await self.service.stay_voice.callback(self.service,interaction,True)
+        self.assertEqual(self.service.stay,{'1':5})
+        await self.service.view.act(interaction,'leave')
+        self.assertFalse(self.service.stay)
+        self.vc.disconnect.assert_awaited_once()
 
 
 if __name__ == '__main__':
