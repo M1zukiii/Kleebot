@@ -1,4 +1,5 @@
 """Native music buttons and voice housekeeping; no model calls."""
+import asyncio
 import time
 
 import discord
@@ -113,6 +114,7 @@ class MusicControls(commands.Cog):
     def __init__(self, bot, player_factory, players):
         self.bot, self.player_factory, self.players = bot, player_factory, players
         self.view = MusicPanel(self)
+        self.publish_locks = {}
 
     async def cog_load(self):
         self.bot.add_view(self.view)
@@ -143,16 +145,24 @@ class MusicControls(commands.Cog):
     async def publish(self, player, channel):
         if getattr(getattr(channel, 'guild', None), 'id', None) != player.guild_id:
             return
-        if player.panel_message is not None and player.panel_message.channel.id == channel.id:
-            await self.refresh(player, force=True)
-            if player.panel_message is not None:
-                return
-        # A new request channel replaces the old panel, avoiding multiple live panels.
+        async with self.publish_locks.setdefault(player.guild_id, asyncio.Lock()):
+            await self._replace_panel(player, channel)
+
+    async def _replace_panel(self, player, channel):
+        # New requests move the panel to the newest message, including in the same channel.
         if player.panel_message is not None:
+            old = player.panel_message
             try:
-                await player.panel_message.edit(view=None)
-            except discord.HTTPException:
+                await old.delete()
+            except discord.NotFound:
                 pass
+            except discord.HTTPException:
+                # If deletion is unavailable, retire the old controls before posting anew.
+                try:
+                    await old.edit(view=None)
+                except discord.HTTPException:
+                    pass
+            player.panel_message = None
         embed = self.embed(player)
         player.panel_message = await channel.send(embed=embed, view=self.view, allowed_mentions=discord.AllowedMentions.none())
         player.panel_state = str(embed.to_dict())

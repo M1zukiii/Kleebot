@@ -138,9 +138,9 @@ class MusicControlTests(unittest.IsolatedAsyncioTestCase):
             await self.player._finished(self.vc, self.track(), 0, RuntimeError())
         self.assertFalse(self.player.queue)
 
-    async def test_panel_refresh_is_bounded_and_reuses_message(self):
+    async def test_panel_refresh_is_bounded_but_new_request_replaces_message(self):
         channel = NS(id=50,guild=self.guild,send=AsyncMock())
-        message = NS(channel=channel,edit=AsyncMock())
+        message = NS(channel=channel,edit=AsyncMock(),delete=AsyncMock())
         channel.send.return_value = message
         await self.service.publish(self.player, channel)
         await self.service.refresh(self.player)
@@ -149,7 +149,8 @@ class MusicControlTests(unittest.IsolatedAsyncioTestCase):
         await self.service.refresh(self.player)
         message.edit.assert_awaited_once()
         await self.service.publish(self.player, channel)
-        channel.send.assert_awaited_once()
+        message.delete.assert_awaited_once()
+        self.assertEqual(channel.send.await_count, 2)
         self.assertEqual(channel.send.call_args.kwargs['allowed_mentions'].to_dict()['parse'], [])
         self.assertTrue(self.service.view.is_persistent())
 
