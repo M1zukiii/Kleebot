@@ -263,7 +263,7 @@ class ManagementAgent:
             elif not re.match(r'bilisearch', query, re.I):
                 query = 'bilisearch1:' + re.sub(r'^ytsearch\d*:', '', query)
         try:
-            track = await self.player_factory(guild).enqueue(SimpleNamespace(guild=guild, user=actor), query)
+            track = await self.player_factory(guild).enqueue(SimpleNamespace(guild=guild, user=actor, channel=message.channel), query)
         except DownloadError as exc:
             if '412' in str(exc) and ('bilisearch' in query or 'bilibili.com' in query):
                 raise ModerationError('B站暂时拒绝了搜索或读取请求（HTTP 412），没有加入播放队列。请稍后再试，或提供具体 BV 视频链接。') from exc

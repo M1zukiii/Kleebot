@@ -20,6 +20,7 @@ from .spam_guard import SpamGuard
 from .diagnostic_controls import DiagnosticControls
 from .diagnostics import explanation
 from .operations import Operations
+from .music_controls import MusicControls
 from .fact_memory import FactMemory
 from .conversation import ConversationService, ConversationStore
 from .ai_usage import AiUsageStore
@@ -480,8 +481,7 @@ async def handle_leave(interaction: discord.Interaction) -> None:
     await defer(interaction)
     print(f"leave requested in {interaction.guild.id if interaction.guild else 'dm'}", flush=True)
     if interaction.guild and interaction.guild.voice_client:
-        await interaction.guild.voice_client.disconnect()
-        players.pop(interaction.guild.id, None)
+        await get_player(interaction.guild).disconnect(interaction.guild)
         await respond(interaction, "Left voice channel.")
     else:
         await respond(interaction, "I am not in a voice channel.")
@@ -1249,8 +1249,7 @@ async def prefix_join(ctx: commands.Context) -> None:
 @bot.command(name="leave")
 async def prefix_leave(ctx: commands.Context) -> None:
     if ctx.guild and ctx.guild.voice_client:
-        await ctx.guild.voice_client.disconnect()
-        players.pop(ctx.guild.id, None)
+        await get_player(ctx.guild).disconnect(ctx.guild)
         await ctx.send("Left voice channel.")
     else:
         await ctx.send("I am not in a voice channel.")
@@ -1549,6 +1548,7 @@ class _ContextInteraction:
     def __init__(self, ctx: commands.Context) -> None:
         self.guild = ctx.guild
         self.user = ctx.author
+        self.channel = getattr(ctx, 'channel', None)
         self.response = _ContextResponse(ctx)
         self.followup = _ContextFollowup(ctx)
 
@@ -1557,6 +1557,7 @@ async def run_bot():
     global autonomy, spam_guard, operations
     operations = Operations(bot,DATA_DIR)
     await bot.add_cog(operations)
+    await bot.add_cog(MusicControls(bot, get_player, players))
     spam_guard = SpamGuard(bot, DATA_DIR)
     await bot.add_cog(spam_guard)
     await bot.add_cog(Moderation(bot))

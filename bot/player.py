@@ -2,6 +2,7 @@ import asyncio
 import os
 import random
 import shutil
+import time
 from collections import deque
 from dataclasses import dataclass, field
 
@@ -51,6 +52,21 @@ class GuildPlayer:
     repeat_mode: str = "off"
     skip_requested: bool = False
     lock: asyncio.Lock = field(default_factory=asyncio.Lock)
+    generation: int = 0
+    idle_since: float | None = None
+    alone_since: float | None = None
+    panel_message: object = None
+    panel_state: str = ''
+
+    async def publish_panel(self, interaction):
+        service = getattr(self.bot, 'get_cog', lambda _: None)('MusicControls')
+        channel = getattr(interaction, 'channel', None)
+        if service is not None and channel is not None:
+            try:
+                await service.publish(self, channel)
+            except discord.HTTPException:
+                # Playback must not fail because the text panel cannot be posted.
+                print('music panel delivery failed', flush=True)
 
     async def enqueue(self, interaction: discord.Interaction, query: str) -> Track:
         if interaction.user is None:
@@ -67,6 +83,7 @@ class GuildPlayer:
                 self.current = None
             self._cleanup_track(track)
             raise
+        await self.publish_panel(interaction)
         return track
 
     async def enqueue_playlist(self, interaction: discord.Interaction, query: str, limit: int = 50) -> list[Track]:
@@ -75,6 +92,7 @@ class GuildPlayer:
         tracks = await self.resolver.resolve_playlist(query, interaction.user.display_name, limit)
         self.queue.extend(tracks)
         await self.ensure_playing(interaction)
+        await self.publish_panel(interaction)
         return tracks
 
     async def ensure_voice(self, interaction: discord.Interaction) -> discord.VoiceClient:
@@ -88,9 +106,12 @@ class GuildPlayer:
 
         voice_client = interaction.guild.voice_client
         if voice_client is None:
-            return await voice_state.channel.connect()
+            voice_client = await voice_state.channel.connect(self_deaf=True)
+            self.idle_since = time.monotonic()
+            self.alone_since = None
         if voice_client.channel != voice_state.channel:
             await voice_client.move_to(voice_state.channel)
+        await interaction.guild.change_voice_state(channel=voice_state.channel, self_deaf=True)
         return voice_client
 
     async def ensure_playing(self, interaction: discord.Interaction) -> None:
@@ -102,10 +123,13 @@ class GuildPlayer:
     async def _play_next(self, voice_client: discord.VoiceClient) -> None:
         if not self.queue:
             self.current = None
+            self.idle_since = time.monotonic()
             return
 
+        self.idle_since = None
         self.current = self.queue.popleft()
         played_track = self.current
+        generation = self.generation
         before_options = self._ffmpeg_before_options(played_track)
         source = discord.FFmpegPCMAudio(
             played_track.stream_url,
@@ -116,24 +140,7 @@ class GuildPlayer:
         audio = discord.PCMVolumeTransformer(source, volume=self.volume)
 
         def after(error: Exception | None) -> None:
-            if error:
-                print(f"playback error: {error}", flush=True)
-            should_requeue = False
-            if not self.skip_requested:
-                if self.repeat_mode == "one":
-                    self.queue.appendleft(played_track)
-                    should_requeue = True
-                elif self.repeat_mode == "queue":
-                    self.queue.append(played_track)
-                    should_requeue = True
-            self.skip_requested = False
-            if not should_requeue:
-                self._cleanup_track(played_track)
-            fut = asyncio.run_coroutine_threadsafe(self._play_next(voice_client), self.bot.loop)
-            try:
-                fut.result()
-            except Exception as exc:
-                print(f"failed to play next track: {exc}", flush=True)
+            asyncio.run_coroutine_threadsafe(self._finished(voice_client, played_track, generation, error), self.bot.loop)
 
         try:
             voice_client.play(audio, after=after)
@@ -142,6 +149,37 @@ class GuildPlayer:
             self.current = None
             self._cleanup_track(played_track)
             raise
+
+    async def _finished(self, voice_client, track, generation, error=None):
+        async with self.lock:
+            if generation != self.generation:
+                self._cleanup_track(track)
+                return
+            repeat = not error and not self.skip_requested
+            if repeat and self.repeat_mode == 'one':
+                self.queue.appendleft(track)
+            elif repeat and self.repeat_mode == 'queue':
+                self.queue.append(track)
+            else:
+                self._cleanup_track(track)
+            self.skip_requested = False
+            try:
+                await self._play_next(voice_client)
+            except Exception as exc:
+                self.idle_since = time.monotonic()
+                print('failed to play next track: '+type(exc).__name__, flush=True)
+
+    async def disconnect(self, guild):
+        async with self.lock:
+            await self._disconnect(guild)
+
+    async def _disconnect(self, guild):
+        self.clear()
+        self.idle_since = None
+        self.alone_since = None
+        if guild.voice_client:
+            guild.voice_client.stop()
+            await guild.voice_client.disconnect()
 
     def _ffmpeg_before_options(self, track: Track) -> str:
         if track.local_path:
@@ -186,7 +224,7 @@ class GuildPlayer:
 
     def skip(self, guild: discord.Guild) -> bool:
         voice_client = guild.voice_client
-        if voice_client and voice_client.is_playing():
+        if voice_client and (voice_client.is_playing() or voice_client.is_paused()):
             self.skip_requested = True
             voice_client.stop()
             return True
@@ -194,9 +232,13 @@ class GuildPlayer:
 
     def clear(self) -> int:
         count = len(self.queue)
+        for track in self.queue:
+            self._cleanup_track(track)
         self.queue.clear()
         self.current = None
-        self.skip_requested = True
+        self.generation += 1
+        self.skip_requested = False
+        self.idle_since = time.monotonic()
         return count
 
     def shuffle(self) -> int:
