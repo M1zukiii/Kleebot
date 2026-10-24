@@ -235,3 +235,8 @@ diagnostic references, never raw chat, console output or credentials. A forced
 kill or power loss cannot send a final shutdown notice; the next startup reports
 that the previous run did not record a normal close. Discord delivery is bounded
 and retried; operational records expire after 14 days and are capped at 1,000.
+### 音乐按钮与语音自动退出
+
+点歌或加入歌单后自动显示音乐面板，也可使用 `/音乐面板` 打开。暂停/继续、跳过、队列、音量（0–100%）、循环、停止、退出按钮仅限 Klee 所在语音频道的成员操作，不要求管理员。面板在状态变化时刷新，按钮使用持久化注册；重启后需重新点歌恢复队列。
+
+加入和移动语音时默认 `self_deaf=True`，关闭听筒但保留音乐输出。每15秒检查一次：空闲或暂停连续5分钟、频道无人连续1分钟时，清空队列并退出。有人正常听歌时不限制在线时长。停止/退出会使旧播放回调失效，避免重新启动循环或下一首。
