@@ -136,6 +136,7 @@ class MusicControls(commands.Cog):
         if player.current:
             embed.add_field(name='歌曲', value=discord.utils.escape_markdown(player.current.title)[:256] or '未命名', inline=False)
             embed.add_field(name='点歌人', value=discord.utils.escape_markdown(player.current.requester)[:128] or '未知')
+            embed.add_field(name='时长', value=player._format_duration(player.current.duration) or '未知')
         embed.add_field(name='队列', value=str(len(player.queue)))
         embed.add_field(name='音量', value=f'{round(player.volume * 100)}%')
         embed.add_field(name='循环', value={'off':'关闭','one':'单曲','queue':'队列'}[player.repeat_mode])
