@@ -1,5 +1,7 @@
 """Native music buttons and voice housekeeping; no model calls."""
 import asyncio
+import json
+from pathlib import Path
 import time
 
 import discord
@@ -65,6 +67,7 @@ class MusicPanel(discord.ui.View):
                 vc.stop()
                 text = '已停止并清空队列，空闲 5 分钟后退出。'
             else:
+                self.service.set_stay(interaction.guild.id, None)
                 await player._disconnect(interaction.guild)
                 text = '已清空队列并退出语音。'
         await self.service.refresh(player)
@@ -111,10 +114,36 @@ class MusicPanel(discord.ui.View):
 
 
 class MusicControls(commands.Cog):
-    def __init__(self, bot, player_factory, players):
+    def __init__(self, bot, player_factory, players, data_dir=None):
         self.bot, self.player_factory, self.players = bot, player_factory, players
         self.view = MusicPanel(self)
         self.publish_locks = {}
+        self.stay = {}
+        self.retry_at = {}
+        self.settings_file = Path(data_dir) / 'music_stay.json' if data_dir is not None else None
+        if self.settings_file is not None:
+            try:
+                settings = json.loads(self.settings_file.read_text(encoding='utf-8'))
+                self.stay = {str(int(gid)):int(cid) for gid,cid in settings.items()}
+            except (OSError, ValueError, TypeError, AttributeError):
+                self.stay = {}
+
+    def set_stay(self, guild_id, channel_id):
+        values = dict(self.stay)
+        if channel_id is None:
+            values.pop(str(guild_id), None)
+        else:
+            values[str(guild_id)] = int(channel_id)
+        if self.settings_file is not None:
+            self.settings_file.parent.mkdir(parents=True, exist_ok=True)
+            temporary = self.settings_file.with_suffix('.tmp')
+            temporary.write_text(json.dumps(values), encoding='utf-8')
+            temporary.replace(self.settings_file)
+        self.stay = values
+        self.retry_at.pop(guild_id, None)
+        player = self.players.get(guild_id)
+        if player is not None:
+            player.idle_since = player.alone_since = None
 
     async def cog_load(self):
         self.bot.add_view(self.view)
@@ -140,7 +169,8 @@ class MusicControls(commands.Cog):
         embed.add_field(name='队列', value=str(len(player.queue)))
         embed.add_field(name='音量', value=f'{round(player.volume * 100)}%')
         embed.add_field(name='循环', value={'off':'关闭','one':'单曲','queue':'队列'}[player.repeat_mode])
-        embed.set_footer(text='同语音频道成员可操作 · 空闲/暂停5分钟退出 · 无人1分钟退出 · 听筒关闭')
+        mode = '常驻已开启，不自动退出' if str(player.guild_id) in self.stay else '空闲/暂停5分钟退出 · 无人1分钟退出'
+        embed.set_footer(text='同语音频道成员可操作 · '+mode+' · 听筒关闭')
         return embed
 
     async def publish(self, player, channel):
@@ -187,10 +217,23 @@ class MusicControls(commands.Cog):
             vc = guild.voice_client
             if vc is None:
                 player.idle_since = player.alone_since = None
+                target = self.stay.get(str(guild.id))
+                if target is not None and now >= self.retry_at.get(guild.id, 0):
+                    self.retry_at[guild.id] = now + 60
+                    channel = guild.get_channel(target)
+                    if isinstance(channel, discord.VoiceChannel):
+                        permissions = channel.permissions_for(guild.me)
+                        if permissions.view_channel and permissions.connect:
+                            await channel.connect(self_deaf=True, timeout=15)
                 return
             voice = getattr(getattr(guild, 'me', None), 'voice', None)
             if voice is not None and not voice.self_deaf:
                 await guild.change_voice_state(channel=vc.channel, self_deaf=True)
+            if str(guild.id) in self.stay:
+                if self.stay[str(guild.id)] != vc.channel.id:
+                    self.set_stay(guild.id, vc.channel.id)
+                player.idle_since = player.alone_since = None
+                return
             if any(not member.bot for member in vc.channel.members):
                 player.alone_since = None
             elif player.alone_since is None:
@@ -210,7 +253,7 @@ class MusicControls(commands.Cog):
         for guild in self.bot.guilds:
             # Also adopt existing voice connections after an extension reload.
             player = self.players.get(guild.id)
-            if player is None and guild.voice_client:
+            if player is None and (guild.voice_client or str(guild.id) in self.stay):
                 player = self.player_factory(guild)
             if player is None:
                 continue
@@ -230,3 +273,30 @@ class MusicControls(commands.Cog):
         await interaction.response.defer(ephemeral=True)
         await self.publish(self.player_factory(interaction.guild), interaction.channel)
         await interaction.followup.send('音乐面板已打开。', ephemeral=True)
+
+    @app_commands.command(name='常驻语音', description='让Klee常驻你的语音频道；关闭后恢复空闲自动退出。')
+    @app_commands.guild_only()
+    @app_commands.rename(enabled='开启')
+    async def stay_voice(self, interaction: discord.Interaction, enabled: bool = True):
+        await interaction.response.defer(ephemeral=True)
+        guild = interaction.guild
+        channel = getattr(getattr(interaction.user, 'voice', None), 'channel', None)
+        vc = guild.voice_client
+        if channel is None or (vc is not None and channel.id != vc.channel.id):
+            await interaction.followup.send('请先加入 Klee 所在的语音频道；尚未连接时，请先加入要常驻的频道。', ephemeral=True)
+            return
+        permissions = channel.permissions_for(interaction.user)
+        if not permissions.view_channel or not permissions.connect:
+            await interaction.followup.send('你当前无法使用这个语音频道。', ephemeral=True)
+            return
+        player = self.player_factory(guild)
+        try:
+            async with player.lock:
+                if enabled:
+                    await player.ensure_voice(interaction)
+                self.set_stay(guild.id, channel.id if enabled else None)
+            await self.refresh(player)
+            text = '常驻已开启：Klee 会留在此语音频道，重启后也会尝试重新加入。' if enabled else '常驻已关闭，恢复空闲/暂停5分钟、无人1分钟后自动退出。'
+            await interaction.followup.send(text, ephemeral=True)
+        except (discord.HTTPException, RuntimeError, OSError):
+            await interaction.followup.send('未能完成常驻设置，请检查语音连接、频道权限和本机配置。', ephemeral=True)

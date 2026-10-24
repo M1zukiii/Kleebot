@@ -480,6 +480,8 @@ async def handle_join(interaction: discord.Interaction) -> None:
 async def handle_leave(interaction: discord.Interaction) -> None:
     await defer(interaction)
     print(f"leave requested in {interaction.guild.id if interaction.guild else 'dm'}", flush=True)
+    if interaction.guild:
+        bot.get_cog('MusicControls').set_stay(interaction.guild.id, None)
     if interaction.guild and interaction.guild.voice_client:
         await get_player(interaction.guild).disconnect(interaction.guild)
         await respond(interaction, "Left voice channel.")
@@ -1248,6 +1250,8 @@ async def prefix_join(ctx: commands.Context) -> None:
 
 @bot.command(name="leave")
 async def prefix_leave(ctx: commands.Context) -> None:
+    if ctx.guild:
+        bot.get_cog('MusicControls').set_stay(ctx.guild.id, None)
     if ctx.guild and ctx.guild.voice_client:
         await get_player(ctx.guild).disconnect(ctx.guild)
         await ctx.send("Left voice channel.")
@@ -1557,7 +1561,7 @@ async def run_bot():
     global autonomy, spam_guard, operations
     operations = Operations(bot,DATA_DIR)
     await bot.add_cog(operations)
-    await bot.add_cog(MusicControls(bot, get_player, players))
+    await bot.add_cog(MusicControls(bot, get_player, players, DATA_DIR))
     spam_guard = SpamGuard(bot, DATA_DIR)
     await bot.add_cog(spam_guard)
     await bot.add_cog(Moderation(bot))
