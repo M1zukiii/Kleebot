@@ -314,11 +314,12 @@ class ManagementAgent:
             history = [{'role': 'user', 'content': json.dumps({'authenticated_request': message.content[:4000],
                         'requester_id': str(message.author.id)}, ensure_ascii=False)}]
             created, cache, completed, errors = set(), {}, [], []
+            model = self.model.pin() if isinstance(self.model, ToolModel) else self.model
             changed, uncertain = False, False
             inspected = False
             async with asyncio.timeout(180):
                 for _ in range(8):
-                    calls, summary = await self.model.step(PROMPT, history, TOOLS)
+                    calls, summary = await model.step(PROMPT, history, TOOLS)
                     if not calls:
                         if not completed:
                             errors.append(summary[:800] or '这次没有执行更改。')
@@ -363,7 +364,7 @@ class ManagementAgent:
                             errors.append(result.get('error', '工具未执行'))
                     except (ValueError, ModerationError) as exc:
                         result = {'ok': False, 'error': str(exc)}
-                    self.model.result(history, call['id'], result)
+                    model.result(history, call['id'], result)
             text = ('已执行：\n'+'\n'.join(completed)) if completed else '这次没有执行更改。'
             if errors:
                 text += '\n说明：'+'；'.join(dict.fromkeys(errors))[:900]

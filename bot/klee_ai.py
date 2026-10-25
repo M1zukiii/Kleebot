@@ -43,7 +43,7 @@ class KleeAI:
     def __init__(self) -> None:
         self.chat_model = ChatModel()
         self.diagnostics = DiagnosticStore.from_env()
-        self.web_search = os.getenv("KLEE_WEB_SEARCH", "true").strip().lower() in {"1", "true", "yes", "on"} and self.chat_model.config.provider == "openai"
+        self._web_search_requested = os.getenv("KLEE_WEB_SEARCH", "true").strip().lower() in {"1", "true", "yes", "on"}
         self.api_key = os.getenv("OPENAI_API_KEY")
         self.model = os.getenv("OPENAI_MODEL", "gpt-5.6-luna")
         self.image_model = os.getenv("OPENAI_IMAGE_MODEL", "gpt-image-1.5")
@@ -75,9 +75,17 @@ class KleeAI:
             "yes",
             "on",
         }
-        self.novelai_prompt_model = os.getenv("NOVELAI_PROMPT_MODEL") or self.chat_model.config.model
+        self._novelai_prompt_model = os.getenv("NOVELAI_PROMPT_MODEL")
         self.prompt_file = Path(os.getenv("KLEE_PROMPT_FILE", str(DEFAULT_PROMPT_FILE)))
         self._client = None
+
+    @property
+    def web_search(self):
+        return self._web_search_requested and self.chat_model.config.provider == 'openai'
+
+    @property
+    def novelai_prompt_model(self):
+        return self._novelai_prompt_model or self.chat_model.config.model
 
     @property
     def enabled(self) -> bool:

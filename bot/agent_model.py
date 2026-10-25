@@ -6,6 +6,9 @@ class ToolModel:
     def __init__(self, chat_model):
         self.chat = chat_model
 
+    def pin(self):
+        return ToolModel(self.chat.snapshot())
+
     async def step(self, instructions, history, tools):
         client = self.chat._get_client()
         if self.chat.config.provider == 'deepseek':

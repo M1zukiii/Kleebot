@@ -47,7 +47,17 @@ class ChatModel:
     def __init__(self, config=None):
         self.config = config or ChatConfig.from_env()
         self._client = None
+        self._root = self
         self.budget = ModelBudget.from_env()
+
+    def snapshot(self):
+        """Pin a backend for one request or an entire tool conversation."""
+        pinned = object.__new__(ChatModel)
+        pinned.config = self.config
+        pinned._client = self._get_client() if self.config.api_key else None
+        pinned.budget = self.budget
+        pinned._root = self._root
+        return pinned
 
     @property
     def enabled(self):
@@ -58,7 +68,8 @@ class ChatModel:
         try:
             response = await self._get_client().responses.create(**kwargs)
         except Exception as exc:
-            self.budget.failed(exc)
+            if self.config == self._root.config:
+                self.budget.failed(exc)
             raise
         self.budget.record(response, kwargs.get('model', self.config.model), usage_kind)
         return response
@@ -68,7 +79,8 @@ class ChatModel:
         try:
             response = await self._get_client().chat.completions.create(**kwargs)
         except Exception as exc:
-            self.budget.failed(exc)
+            if self.config == self._root.config:
+                self.budget.failed(exc)
             raise
         self.budget.record(response, kwargs.get('model', self.config.model), usage_kind)
         return response
@@ -83,6 +95,10 @@ class ChatModel:
         return self._client
 
     async def generate(self, *, instructions, text, image_urls=None, max_tokens=180, model=None, web_search=False, purpose='chat', reasoning_effort=None):
+        return await self.snapshot()._generate(instructions=instructions,text=text,image_urls=image_urls,
+            max_tokens=max_tokens,model=model,web_search=web_search,purpose=purpose,reasoning_effort=reasoning_effort)
+
+    async def _generate(self, *, instructions, text, image_urls=None, max_tokens=180, model=None, web_search=False, purpose='chat', reasoning_effort=None):
         self.budget.before_request()
         if not self.enabled:
             raise RuntimeError("Chat API key is missing")
