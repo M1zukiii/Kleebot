@@ -22,6 +22,7 @@ from .diagnostics import explanation
 from .operations import Operations
 from .music_controls import MusicControls
 from .reply_context import read_reply_context, ReplyContext
+from .persona_modes import PersonaStore, PersonaControls
 from .fact_memory import FactMemory
 from .conversation import ConversationService, ConversationStore
 from .ai_usage import AiUsageStore
@@ -70,6 +71,7 @@ players: dict[int, GuildPlayer] = {}
 BASE_DIR = Path(__file__).resolve().parent.parent
 ASSETS_DIR = BASE_DIR / "assets"
 DATA_DIR = Path(os.getenv("KLEE_DATA_DIR") or ("/app/data" if Path("/app").exists() else str(BASE_DIR / "data")))
+klee_ai.persona_modes = PersonaStore(DATA_DIR / 'persona.sqlite3')
 HELP_TEXT_FILE = Path(os.getenv("HELP_TEXT_FILE", str(BASE_DIR / "help.txt")))
 FORTUNE_SLIP_IMAGE = ASSETS_DIR / "fortune-slip.webp"
 KLEE_FOOTER_IMAGE = ASSETS_DIR / "klee-footer.jpg"
@@ -1567,6 +1569,7 @@ async def run_bot():
     global autonomy, spam_guard, operations
     operations = Operations(bot,DATA_DIR)
     await bot.add_cog(operations)
+    await bot.add_cog(PersonaControls(klee_ai.persona_modes))
     await bot.add_cog(MusicControls(bot, get_player, players, DATA_DIR))
     spam_guard = SpamGuard(bot, DATA_DIR)
     await bot.add_cog(spam_guard)
