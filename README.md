@@ -253,4 +253,6 @@ and retried; operational records expire after 14 days and are capped at 1,000.
 
 `/切换模型 模型:DeepSeek Flash` 或 `模型:GPT-6 Luna` 在运行时切换全机器人共用的聊天、记忆解析、管理agent和智能文件生成模型；不填参数查看当前选择和密钥配置状态。只有 `KLEE_OWNER_IDS` 中配置的所有者可用。先执行一次短回复连接验证（会产生少量API用量），成功后原子保存到数据目录的 `model_selection.json`；该文件只存选择，不含密钥。失败保留原模型，验证失败不会把目标余额不足传播成原模型的基础模式。已经开启的基础模式不会自动解除。
 
-`CHAT_API_KEY` 只供启动时 `CHAT_PROVIDER` 对应的服务使用。其他服务使用各自密钥：`DEEPSEEK_API_KEY`、`OPENAI_CHAT_API_KEY`（缺省可用 `OPENAI_API_KEY`）。因此 `.env.local` 可继续保留OpenAI作为启动基线，保存的运行时选择在重启后优先恢复；新增密钥后重启以加载。正在执行的请求和管理工具会话固定原接口，新请求使用新选择。自维护开发和绘图配置不随此指令切换；DeepSeek聊天的联网搜索目前未接入，切回Luna时按原 `KLEE_WEB_SEARCH` 设置恢复。
+`CHAT_API_KEY` 只供启动时 `CHAT_PROVIDER` 对应的服务使用。其他服务使用各自密钥：`DEEPSEEK_API_KEY`、`OPENAI_CHAT_API_KEY`（缺省可用 `OPENAI_API_KEY`）。因此 `.env.local` 可继续保留OpenAI作为启动基线，保存的运行时选择在重启后优先恢复；新增密钥后重启以加载。正在执行的请求和管理工具会话固定原接口，新请求使用新选择。自维护开发和绘图配置不随此指令切换；Luna与DeepSeek聊天均按原 `KLEE_WEB_SEARCH` 设置启用或关闭联网搜索。
+
+DeepSeek Flash通过官方Search API按需搜索，沿用聊天密钥；查询只发送简短公开主题，结果附真实来源，网页内容没有工具或管理权限。明确要求联网时先搜索；失败、空结果和调用上限会如实说明。每条回复默认最多2次查询，每次最多3项资料，正文片段有长度上限；搜索次数进入 `/额度状态`，按提供商实际请求计费。普通分类、记忆解析、管理agent和文件生成不会因此自动联网。

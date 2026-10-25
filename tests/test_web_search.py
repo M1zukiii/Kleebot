@@ -28,7 +28,7 @@ class WebSearchTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_facade_feature_switch_and_provider_isolation(self):
         from bot.klee_ai import KleeAI
-        for provider, enabled, expected in [("openai", "true", True), ("openai", "false", False), ("deepseek", "true", False)]:
+        for provider, enabled, expected in [("openai", "true", True), ("openai", "false", False), ("deepseek", "true", True), ("deepseek", "false", False)]:
             with self.subTest(provider=provider, enabled=enabled), patch.dict(os.environ, {"CHAT_PROVIDER": provider, "CHAT_API_KEY": "key", "KLEE_WEB_SEARCH": enabled}, clear=True):
                 ai = KleeAI()
                 ai.chat_model.generate = AsyncMock(return_value="reply")

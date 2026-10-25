@@ -78,7 +78,7 @@ class ModelBudget:
             return True
         return False
 
-    def record(self, response, model, purpose='other'):
+    def record(self, response, model, purpose='other', *, count_request=True):
         usage = getattr(response, 'usage', None)
         incoming = getattr(usage, 'input_tokens', None)
         outgoing = getattr(usage, 'output_tokens', None)
@@ -105,13 +105,13 @@ class ModelBudget:
         if purpose not in {'other','chat','router','agent','memory','document','rewrite','benchmark'}:
             purpose = 'other'
         with self.lock:
-            values = (1, incoming, outgoing, searches)
+            values = (int(count_request), incoming, outgoing, searches)
             for key, value in zip(self._usage, values):
                 self._usage[key] += value
             details = (cached, writes, reasoning, known)
             for key, value in zip(self._details, details):
                 self._details[key] += value
-            self._purposes[purpose] = self._purposes.get(purpose, 0) + 1
+            self._purposes[purpose] = self._purposes.get(purpose, 0) + int(count_request)
             if self.path:
                 day = datetime.now(timezone.utc).date().isoformat()
                 with self.connect() as db:

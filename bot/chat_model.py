@@ -105,6 +105,10 @@ class ChatModel:
         client = self._get_client()
         model = model or self.config.model
         if self.config.provider == "deepseek":
+            if web_search:
+                from .deepseek_search import DeepSeekSearch
+                return await DeepSeekSearch(self).generate(instructions=instructions,text=text,image_urls=image_urls,
+                    max_tokens=max_tokens,model=model,purpose=purpose)
             content = [{"type": "text", "text": text}]
             content.extend({"type": "image_url", "image_url": {"url": url}} for url in (image_urls or [])[:4])
             response = await self.completion(
