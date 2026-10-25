@@ -40,7 +40,7 @@ async def main():
     equivalents={'timeout':'禁言','untimeout':'解除禁言','qiuqian':'求签'}
     missing=[c.name for c in bot.commands if equivalents.get(c.name,c.name) not in commands]
     options={name:[{'name':p.display_name,'type':p.type.value,'required':p.required,'minimum':p.min_value,'choices':[choice.value for choice in p.choices]} for p in commands[name].parameters] for name in ['读文件','生成文件','炸弹','bomb']}
-    print(json.dumps({'missing':missing,'names':list(commands),'options':options},ensure_ascii=False))
+    print(json.dumps({'missing':missing,'names':list(commands),'options':options,'persona_options':{name:len(commands[name].parameters) for name in ('邪恶模式','善良模式')}},ensure_ascii=False))
     await bot.close()
 asyncio.run(main())
 '''
@@ -50,8 +50,9 @@ asyncio.run(main())
         self.assertEqual(result.returncode, 0, result.stderr)
         state = json.loads(result.stdout.splitlines()[-1])
         self.assertEqual(state['missing'], [])
-        for name in ('邪恶模式','常驻语音','音乐面板','开发','更新','更新状态','自维护检查','日志频道','诊断','核对操作','清除聊天','读文件','生成文件','公式','额度状态','防刷屏设置','防刷屏状态'):
+        for name in ('邪恶模式','善良模式','常驻语音','音乐面板','开发','更新','更新状态','自维护检查','日志频道','诊断','核对操作','清除聊天','读文件','生成文件','公式','额度状态','防刷屏设置','防刷屏状态'):
             self.assertIn(name, state['names'])
+        self.assertEqual(state['persona_options'],{'邪恶模式':0,'善良模式':0})
         self.assertEqual(state['options']['读文件'][0]['type'], 11)  # native Attachment option
         formats = next(option['choices'] for option in state['options']['生成文件'] if option['name'] == '格式')
         self.assertEqual(set(formats), {'txt','md','csv','json','pdf','docx','xlsx'})

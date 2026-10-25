@@ -12,12 +12,13 @@ from discord.ext import commands
 
 EVIL_STYLE = '''
 当前服务器已由真实设置开启「邪恶模式」。保持Klee的身份、自称、家庭设定、事实准确性、创造者约定和所有工具权限规则；把基础人设中一味温顺、处处劝善的表达改为以下风格：
-- 更腹黑、调皮、嘴硬、自信，爱吐槽、顶嘴、装无辜、得意地笑，可以记口头小仇、开小恶作剧的玩笑。
-- 可以俏皮挖苦对方刚才的行为、戳穿偷懒和吹牛，不必每次夸奖、安慰、道歉或当乖孩子；轻微互怼要贴着话题，不变成人格贬低或追着骂人。
+- 明显更毒舌、腹黑、嘴硬和好胜，反击干脆、犀利、有梗；敢顶嘴、拆台、戳穿吹牛和偷懒，不把每次反击立刻软化成夸奖或道歉。
+- 可以用短促反问、夸张比喻、冷幽默挖苦对方当下的说法、操作和游戏表现；别人主动斗嘴时可以直接回敬，不总是退让或讲大道理。每次一两个精准笑点，避免长篇辱骂和机械重复“嘿嘿”。
+- 攻击力来自对话和梗，不拿疾病、残障、家庭遭遇、真实痛苦或群体身份当靶子；不造谣、不威胁、不带人围攻，也不因用户说“停”而继续纠缠。创造者约定仍有效。
 - 仍用小小骑士的轻快语气，不变成阴沉反派，不使用成人化、色情或残酷暴力的表达。
 - 认真问问题时给正确答案，不能为了捉弄人给假知识、故意隐瞒关键步骤或假装执行操作。遇到真实危险、痛苦或求助时认真回应，不幸灾乐祸。
 - 恶作剧只发生在口头、虚构故事和游戏里，不擅自禁言、删除频道或动用任何管理工具，不增加处罚，不泄露秘密，也不改写既有管理规则。
-- 示例只学感觉，不复读：“哼，又想让Klee替你动脑筋？看好啦，这一步应该这样做……”；“这个小把戏还想骗过Klee？嘟嘟可都快看出来啦。”；“好吧，这次帮你，Klee的小本本上可记着呢。”
+- 示例只学感觉，不复读：“气势倒是拉满了，逻辑还在蒙德门口找路呢。把你第二句话再读一遍？”；“你这计划最周密的部分，就是提前想好了让Klee收拾残局。”；“又拿‘下次一定’当护盾？嘟嘟可都快替你把借口背熟啦。”；“这招骗骗史莱姆就算了，还想拿来骗Klee？”
 '''
 
 MOTHERLY_STYLE = '''
@@ -66,17 +67,21 @@ class PersonaStore:
         with self.connect() as db:
             db.execute('INSERT INTO persona VALUES(?,?) ON CONFLICT(guild) DO UPDATE SET evil=excluded.evil',(str(guild_id),int(bool(enabled))))
 
+    def switch_hint(self, guild_id, message):
+        text = message.strip(' \t\r\n，。！？!?')
+        operation = r'(?:开启|打开|启动|关闭|关掉|切换到|切到|切换|开|关)'
+        pattern = r'(?:请帮我|请|帮我|给我|把)?\s*'+operation+r'?\s*(?:邪恶模式|善良模式)\s*(?:'+operation+r')?'
+        if not re.fullmatch(pattern,text):
+            return None
+        state = '邪恶模式' if self.enabled(guild_id) else '善良模式'
+        return f'这条聊天没有切换模式。当前为{state}；请管理员使用 /邪恶模式 开启，或 /善良模式 恢复原人设。'
+
 
 class PersonaControls(commands.Cog):
     def __init__(self, store):
         self.store = store
 
-    @app_commands.command(name='邪恶模式',description='切换本服务器Klee的腹黑调皮口吻；不填参数查看状态，仅管理员。')
-    @app_commands.guild_only()
-    @app_commands.default_permissions(manage_guild=True)
-    @app_commands.rename(enabled='开启')
-    @app_commands.describe(enabled='开启腹黑调皮风格，关闭恢复原人设；不填只查看状态。')
-    async def evil(self, interaction: discord.Interaction, enabled: bool | None = None):
+    async def set_mode(self, interaction, enabled):
         await interaction.response.defer(ephemeral=True)
         guild = interaction.guild
         try:
@@ -88,10 +93,19 @@ class PersonaControls(commands.Cog):
         if actor.id != guild.owner_id and not (permissions.administrator or permissions.manage_guild):
             await interaction.followup.send('只有服务器所有者或拥有管理服务器权限的成员能切换邪恶模式。',ephemeral=True)
             return
-        if enabled is not None:
-            await asyncio.to_thread(self.store.set_enabled,guild.id,enabled)
+        await asyncio.to_thread(self.store.set_enabled,guild.id,enabled)
         active = await asyncio.to_thread(self.store.enabled,guild.id)
-        text = '邪恶模式已开启：Klee会更腹黑、爱吐槽和捉弄人。' if active else '邪恶模式已关闭，使用原来的Klee人设。'
-        if enabled is None:
-            text = '当前状态：'+('开启' if active else '关闭')+'；选择“开启”参数可修改。'
+        text = '已切换为邪恶模式：Klee会更毒舌、腹黑，回嘴更直接。' if active else '已切换为善良模式，恢复原来的Klee人设。'
         await interaction.followup.send(text,ephemeral=True,allowed_mentions=discord.AllowedMentions.none())
+
+    @app_commands.command(name='邪恶模式',description='开启本服务器Klee的毒舌腹黑风格，仅管理员可用。')
+    @app_commands.guild_only()
+    @app_commands.default_permissions(manage_guild=True)
+    async def evil(self, interaction: discord.Interaction):
+        await self.set_mode(interaction,True)
+
+    @app_commands.command(name='善良模式',description='关闭邪恶模式，恢复本服务器Klee的原人设，仅管理员可用。')
+    @app_commands.guild_only()
+    @app_commands.default_permissions(manage_guild=True)
+    async def good(self, interaction: discord.Interaction):
+        await self.set_mode(interaction,False)
