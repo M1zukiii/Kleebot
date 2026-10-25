@@ -451,7 +451,7 @@ class KleeAI:
         try:
             rewritten = await self.chat_model.generate(
                 model=self.novelai_prompt_model, instructions=instructions,
-                text=prompt[:4000], max_tokens=220,
+                text=prompt[:4000], max_tokens=220, purpose='rewrite',
             )
         except Exception as exc:
             print(f"novelai prompt rewrite failed: {type(exc).__name__}: {exc}", flush=True)

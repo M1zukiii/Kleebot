@@ -122,8 +122,11 @@ class DeepSeekSearch:
         sources=[]
         for turn in range(maximum+2):
             choice='none' if denied or used>=maximum else ({'type':'function','function':{'name':'search_web'}} if required and turn==0 else 'auto')
+            if self.chat.deepseek_thinking and isinstance(choice,dict):
+                # Thinking supports auto/none, but named/required tool choices return HTTP 400.
+                choice='auto'
             response=await self.chat.completion(usage_kind=purpose,model=model,messages=history,tools=[SEARCH_TOOL],
-                tool_choice=choice,parallel_tool_calls=False,max_tokens=max_tokens,extra_body={'thinking':{'type':'disabled'}})
+                tool_choice=choice,parallel_tool_calls=False,**self.chat.deepseek_options(purpose,max_tokens))
             answer=response.choices[0]
             message=answer.message
             calls=message.tool_calls or []
@@ -131,7 +134,8 @@ class DeepSeekSearch:
                 if required and not sources:
                     return 'Klee这次没有完成联网查询，还不能确认最新信息。'
                 if answer.finish_reason!='stop':
-                    raise RuntimeError('Search answer incomplete')
+                    from .chat_model import IncompleteReply
+                    raise IncompleteReply(response)
                 body=(message.content or '').strip()
                 if not body:
                     raise RuntimeError('Search answer missing')
@@ -140,7 +144,7 @@ class DeepSeekSearch:
                 return discord_answer(wrapped)
             if denied or used>=maximum or len(calls)>4:
                 return '这次搜索请求达到限制，Klee还不能确认完整结果，请缩小查询范围。'
-            history.append(message.model_dump(exclude_none=True))
+            history.append(self.chat.tool_message(message,purpose))
             for call in calls:
                 if used>=maximum or call.function.name!='search_web':
                     history.append({'role':'tool','tool_call_id':call.id,'content':'本次只允许有限次数的公开网页搜索，不执行其他工具。'})

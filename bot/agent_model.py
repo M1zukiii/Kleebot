@@ -17,13 +17,12 @@ class ToolModel:
                 model=self.chat.config.model,
                 messages=[{'role': 'system', 'content': instructions}, *history],
                 tools=[{'type': 'function', 'function': {key: value for key, value in tool.items() if key not in {'type', 'strict'}}} for tool in tools],
-                parallel_tool_calls=False, max_tokens=1600,
-                extra_body={'thinking': {'type': 'disabled'}},
+                parallel_tool_calls=False, **self.chat.deepseek_options('agent',1600),
             )
             choice = response.choices[0]
             if choice.finish_reason not in {'stop', 'tool_calls'}:
                 raise ValueError('Incomplete agent response')
-            history.append(choice.message.model_dump(exclude_none=True))
+            history.append(self.chat.tool_message(choice.message,'agent'))
             calls = [{'id': call.id, 'name': call.function.name, 'arguments': call.function.arguments}
                      for call in choice.message.tool_calls or []]
             return calls, choice.message.content or ''
