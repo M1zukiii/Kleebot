@@ -8,7 +8,7 @@ import unittest
 from unittest.mock import AsyncMock, Mock, patch
 
 from bot.agent_model import ToolModel
-from bot.chat_model import ChatConfig, ChatModel
+from bot.chat_model import ChatConfig, ChatModel, IncompleteReply
 from bot.klee_ai import KleeAI
 from bot.model_budget import ModelBudget
 from bot.model_controls import ModelSelection, ModelControls
@@ -35,7 +35,7 @@ class ModelControlTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.chat.config.api_key,'flash-test-key')
         self.assertEqual(self.chat.config.base_url,'https://api.deepseek.com')
         saved = self.service.path.read_text(encoding='utf-8')
-        self.assertEqual(json.loads(saved),{'selection':'flash'})
+        self.assertEqual(json.loads(saved),{'selection':'flash','deepseek_thinking':False})
         self.assertNotIn('test-key',saved)
         old_history,new_history = [],[]
         pinned.result(old_history,'id',{'ok':True})
@@ -147,3 +147,61 @@ class ModelControlTests(unittest.IsolatedAsyncioTestCase):
         ai.chat_model.config=self.service.profiles['luna']
         self.assertTrue(ai.web_search)
         self.assertEqual(ai.novelai_prompt_model,'gpt-6-luna')
+
+    async def test_thinking_toggle_revalidates_and_restores_with_pinned_old_mode(self):
+        self.service.probe=AsyncMock()
+        await self.service.select('flash')
+        self.chat._client=NS(close=AsyncMock())
+        old=self.chat.snapshot()
+        await self.service.select('flash',True)
+        self.assertTrue(self.chat.deepseek_thinking)
+        self.assertFalse(old.deepseek_thinking)
+        self.assertTrue(json.loads(self.service.path.read_text())['deepseek_thinking'])
+        initial=ChatModel(ChatConfig('openai','key','gpt-6-luna',None,60))
+        with patch.dict(os.environ,{'DEEPSEEK_API_KEY':'key'},clear=True):
+            ModelSelection(initial,self.root)
+        self.assertTrue(initial.deepseek_thinking)
+        self.assertEqual(initial.config.provider,'deepseek')
+        with self.assertRaises(ValueError):
+            await self.service.select('luna',True)
+        await self.service.select('flash',False)
+        with patch.dict(os.environ,{'DEEPSEEK_THINKING':'true','DEEPSEEK_API_KEY':'key'},clear=True):
+            disabled=ChatModel(ChatConfig('openai','key','gpt-6-luna',None,60))
+            ModelSelection(disabled,self.root)
+        self.assertFalse(disabled.deepseek_thinking)
+
+    def test_thinking_scope_and_budget_and_tool_reasoning_are_preserved(self):
+        self.chat.deepseek_thinking=True
+        options=self.chat.deepseek_options('chat',900)
+        self.assertEqual(options['extra_body'],{'thinking':{'type':'enabled'}})
+        self.assertEqual(options['reasoning_effort'],'low')
+        self.assertGreaterEqual(options['max_tokens'],4096)
+        self.assertEqual(self.chat.deepseek_options('router',250)['extra_body'],{'thinking':{'type':'disabled'}})
+        self.assertEqual(self.chat.deepseek_options('memory',300)['max_tokens'],300)
+        self.assertEqual(self.chat.deepseek_options('rewrite',220)['max_tokens'],220)
+        message=NS(model_dump=lambda **kw:{'role':'assistant','reasoning_content':'internal','tool_calls':[]})
+        self.assertEqual(self.chat.tool_message(message,'agent')['reasoning_content'],'internal')
+
+    async def test_thinking_agent_preserves_reasoning_with_tool_results(self):
+        self.chat.config=self.service.profiles['flash']
+        self.chat.deepseek_thinking=True
+        call=NS(id='one',function=NS(name='inspect_server',arguments='{}'))
+        message=NS(content=None,tool_calls=[call],model_dump=lambda **kw:{'role':'assistant','tool_calls':[], 'reasoning_content':'internal'})
+        create=AsyncMock(return_value=NS(choices=[NS(finish_reason='tool_calls',message=message)]))
+        self.chat._client=NS(chat=NS(completions=NS(create=create)))
+        model=ToolModel(self.chat).pin()
+        history=[]
+        calls,summary=await model.step('instructions',history,[])
+        self.assertEqual(calls[0]['name'],'inspect_server')
+        self.assertEqual(history[0]['reasoning_content'],'internal')
+        self.assertEqual(summary,'')
+        self.assertEqual(create.call_args.kwargs['extra_body'],{'thinking':{'type':'enabled'}})
+        model.result(history,'one',{'ok':True})
+        self.assertEqual(history[-1]['role'],'tool')
+
+    async def test_exhausted_thinking_budget_is_not_an_empty_success(self):
+        self.chat.config=self.service.profiles['flash']
+        self.chat.deepseek_thinking=True
+        self.chat._client=NS(chat=NS(completions=NS(create=AsyncMock(return_value=NS(choices=[NS(finish_reason='length',message=NS(content=None))])))))
+        with self.assertRaises(IncompleteReply):
+            await self.chat.generate(instructions='persona',text='question')

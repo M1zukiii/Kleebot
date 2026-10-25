@@ -256,3 +256,4 @@ and retried; operational records expire after 14 days and are capped at 1,000.
 `CHAT_API_KEY` 只供启动时 `CHAT_PROVIDER` 对应的服务使用。其他服务使用各自密钥：`DEEPSEEK_API_KEY`、`OPENAI_CHAT_API_KEY`（缺省可用 `OPENAI_API_KEY`）。因此 `.env.local` 可继续保留OpenAI作为启动基线，保存的运行时选择在重启后优先恢复；新增密钥后重启以加载。正在执行的请求和管理工具会话固定原接口，新请求使用新选择。自维护开发和绘图配置不随此指令切换；Luna与DeepSeek聊天均按原 `KLEE_WEB_SEARCH` 设置启用或关闭联网搜索。
 
 DeepSeek Flash通过官方Search API按需搜索，沿用聊天密钥；查询只发送简短公开主题，结果附真实来源，网页内容没有工具或管理权限。明确要求联网时先搜索；失败、空结果和调用上限会如实说明。每条回复默认最多2次查询，每次最多3项资料，正文片段有长度上限；搜索次数进入 `/额度状态`，按提供商实际请求计费。普通分类、记忆解析、管理agent和文件生成不会因此自动联网。
+`/切换模型 模型:DeepSeek Flash 思考:True` 开启DeepSeek思考，`思考:False` 关闭。只提供“思考”参数时自动选择Flash；Luna不使用这个开关。设置与模型选择一起保存，重启保留；新安装默认可由 `DEEPSEEK_THINKING=false`、`DEEPSEEK_REASONING_EFFORT=low` 配置。聊天、管理agent和智能文件生成使用思考，分类、记忆解析和图像提示词整理保持非思考以控制延迟。开启时默认low强度，总生成预算至少4096 tokens且为原预算额外留出2048，包含推理和正文；仍只把最终答复发给用户。搜索和管理工具循环保留接口所需的reasoning_content，不把它作为聊天消息展示。思考模式不支持强制指定工具，搜索阶段使用auto并检查真实搜索结果。验证或输出截断时如实报错，不把空正文当成正常成功。开启会增加等待和输出用量。

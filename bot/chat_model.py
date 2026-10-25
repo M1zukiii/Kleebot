@@ -9,10 +9,12 @@ from .model_budget import ModelBudget
 class IncompleteReply(RuntimeError):
     def __init__(self, response):
         details = getattr(response, 'incomplete_details', None)
-        self.reason = getattr(details, 'reason', None) or 'unknown'
+        choices = getattr(response,'choices',None) or []
+        self.reason = getattr(details, 'reason', None) or (getattr(choices[0],'finish_reason',None) if choices else None) or 'unknown'
         usage = getattr(response, 'usage', None)
-        output_tokens = getattr(usage, 'output_tokens', None)
-        reasoning_tokens = getattr(getattr(usage, 'output_tokens_details', None), 'reasoning_tokens', None)
+        output_tokens = getattr(usage, 'output_tokens', None) or getattr(usage,'completion_tokens',None)
+        output_details=getattr(usage, 'output_tokens_details', None) or getattr(usage,'completion_tokens_details',None)
+        reasoning_tokens = getattr(output_details, 'reasoning_tokens', None)
         super().__init__(f'Reply incomplete: status={getattr(response, "status", "unknown")} reason={self.reason} output_tokens={output_tokens} reasoning_tokens={reasoning_tokens}')
 
 
@@ -48,6 +50,9 @@ class ChatModel:
         self.config = config or ChatConfig.from_env()
         self._client = None
         self._root = self
+        self.deepseek_thinking = os.getenv('DEEPSEEK_THINKING','false').strip().lower() in {'1','true','yes','on'}
+        effort=os.getenv('DEEPSEEK_REASONING_EFFORT','low').strip().lower()
+        self.deepseek_effort = effort if effort in {'low','high','max'} else 'low'
         self.budget = ModelBudget.from_env()
 
     def snapshot(self):
@@ -57,7 +62,23 @@ class ChatModel:
         pinned._client = self._get_client() if self.config.api_key else None
         pinned.budget = self.budget
         pinned._root = self._root
+        pinned.deepseek_thinking = self.deepseek_thinking
+        pinned.deepseek_effort = self.deepseek_effort
         return pinned
+
+    def deepseek_options(self, purpose, max_tokens):
+        thinking=self.deepseek_thinking and purpose in {'chat','agent','document'}
+        options={'max_tokens':max_tokens,'extra_body':{'thinking':{'type':'enabled' if thinking else 'disabled'}}}
+        if thinking:
+            options['reasoning_effort']=self.deepseek_effort
+            options['max_tokens']=max(4096,max_tokens+2048)
+        return options
+
+    def tool_message(self, message, purpose):
+        payload=message.model_dump(exclude_none=True)
+        if self.deepseek_thinking and purpose in {'chat','agent','document'}:
+            payload.setdefault('reasoning_content','')
+        return payload
 
     @property
     def enabled(self):
@@ -115,10 +136,12 @@ class ChatModel:
                 usage_kind=purpose,
                 model=model,
                 messages=[{"role": "system", "content": instructions}, {"role": "user", "content": content}],
-                max_tokens=max_tokens,
-                extra_body={"thinking": {"type": "disabled"}},
+                **self.deepseek_options(purpose,max_tokens),
             )
-            return (response.choices[0].message.content or "").strip()
+            choice=response.choices[0]
+            if getattr(choice,'finish_reason','stop')!='stop' or not choice.message.content:
+                raise IncompleteReply(response)
+            return choice.message.content.strip()
         content = [{"type": "input_text", "text": text}]
         content.extend({"type": "input_image", "image_url": url} for url in (image_urls or [])[:4])
         options = {}

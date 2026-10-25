@@ -36,6 +36,10 @@ class ModelSelection:
             self.profiles[name] = config
         try:
             saved = json.loads(self.path.read_text(encoding='utf-8'))
+            if not isinstance(saved,dict):
+                raise ValueError('Invalid model selection')
+            if isinstance(saved.get('deepseek_thinking'),bool):
+                self.chat.deepseek_thinking=saved['deepseek_thinking']
             config = self.profiles[saved['selection']]
             if config.api_key:
                 self.chat.config, self.chat._client = config, None
@@ -48,6 +52,7 @@ class ModelSelection:
         text += '\n可切换：'+ '；'.join(model+('：密钥已配置' if self.profiles[name].api_key else '：缺少密钥') for name,(_,model) in TARGETS.items())
         search=os.getenv('KLEE_WEB_SEARCH','true').strip().lower() in {'1','true','yes','on'}
         text += '\n联网搜索：'+('开启' if search else '关闭')+'。'
+        text += '\nDeepSeek思考：'+('开启（'+self.chat.deepseek_effort+'）' if self.chat.deepseek_thinking else '关闭')+'。'
         if self.chat.budget.state()[0]:
             text += '\n目前仍处于基础模式；切换模型不会自动恢复AI调用，请使用 /恢复完整。'
         return text
@@ -56,8 +61,7 @@ class ModelSelection:
         config = candidate.config
         if config.provider == 'deepseek':
             response = await candidate.completion(usage_kind='model_check',model=config.model,
-                messages=[{'role':'user','content':'Reply with OK only.'}],max_tokens=16,
-                extra_body={'thinking':{'type':'disabled'}})
+                messages=[{'role':'user','content':'Reply with OK only.'}],**candidate.deepseek_options('chat',16))
             choice = response.choices[0]
             if choice.finish_reason != 'stop' or not choice.message.content:
                 raise ValueError('连接测试没有返回完整文字。')
@@ -68,30 +72,38 @@ class ModelSelection:
                 raise ValueError('连接测试没有返回完整文字。')
         self.chat.budget.record(response,config.model,'model_check')
 
-    def save(self, selection):
+    def save(self, selection, thinking=None):
         self.path.parent.mkdir(parents=True,exist_ok=True)
         temporary = self.path.with_suffix('.tmp')
-        temporary.write_text(json.dumps({'selection':selection}),encoding='utf-8')
+        temporary.write_text(json.dumps({'selection':selection,'deepseek_thinking':self.chat.deepseek_thinking if thinking is None else thinking}),encoding='utf-8')
         temporary.replace(self.path)
 
-    async def select(self, selection):
+    async def select(self, selection, thinking=None):
         if selection not in self.profiles:
             raise ValueError('请选择 Luna 或 DeepSeek Flash。')
+        if thinking is not None and not isinstance(thinking,bool):
+            raise ValueError('思考设置必须选择开启或关闭。')
         async with self.lock:
             config = self.profiles[selection]
+            if thinking is not None and config.provider!='deepseek':
+                raise ValueError('这个思考开关用于DeepSeek；请先选择DeepSeek Flash。Luna的原推理设置不变。')
+            target_thinking=self.chat.deepseek_thinking if thinking is None else thinking
             if not config.api_key:
                 raise ValueError('目标模型尚未配置密钥，当前模型保持不变。')
-            if config == self.chat.config:
-                await asyncio.to_thread(self.save,selection)
+            if config == self.chat.config and target_thinking==self.chat.deepseek_thinking:
+                await asyncio.to_thread(self.save,selection,target_thinking)
                 return '已经在使用这个模型。\n'+self.status()
             candidate = ChatModel(config)
+            candidate.deepseek_thinking=target_thinking
+            candidate.deepseek_effort=self.chat.deepseek_effort
             # A failed target's quota must not pause the still-working current model.
             candidate.budget = ModelBudget()
             committed = False
             try:
                 await asyncio.wait_for(self.probe(candidate),timeout=25)
-                await asyncio.to_thread(self.save,selection)
+                await asyncio.to_thread(self.save,selection,target_thinking)
                 self.chat.config, self.chat._client = config, candidate._client
+                self.chat.deepseek_thinking=target_thinking
                 committed = True
             finally:
                 if not committed and candidate._client is not None:
@@ -104,16 +116,18 @@ class ModelControls(commands.Cog):
         self.selection = selection
 
     @app_commands.command(name='切换模型',description='所有者切换全机器人聊天模型；不填查看状态，切换前会做一次小额连接测试。')
-    @app_commands.rename(model='模型')
-    @app_commands.describe(model='选择GPT-6 Luna或DeepSeek Flash；不填只查看当前模型。')
+    @app_commands.rename(model='模型',thinking='思考')
+    @app_commands.describe(model='选择GPT-6 Luna或DeepSeek Flash；不填只查看当前模型。',thinking='仅DeepSeek；不选模型会切至Flash。开启会增加等待和用量。')
     @app_commands.choices(model=[app_commands.Choice(name='GPT-6 Luna',value='luna'),app_commands.Choice(name='DeepSeek Flash',value='flash')])
-    async def switch(self, interaction:discord.Interaction, model:str|None=None):
+    async def switch(self, interaction:discord.Interaction, model:str|None=None,thinking:bool|None=None):
         if not is_owner(interaction.user.id):
             await interaction.response.send_message('只有配置的Klee所有者可以切换模型。',ephemeral=True)
             return
         await interaction.response.defer(ephemeral=True)
         try:
-            text = self.selection.status() if model is None else await self.selection.select(model)
+            if model is None and thinking is not None:
+                model='flash'
+            text = self.selection.status() if model is None else await self.selection.select(model,thinking)
         except ValueError as exc:
             text = str(exc)
         except Exception as exc:

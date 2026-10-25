@@ -94,3 +94,18 @@ class DeepSeekSearchTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(safe_query('DeepSeek官方API文档',text))
         for url in ('javascript:alert(1)','file:///c:/private','http://localhost/','http://192.168.1.2/','https://user:pass@example.com','http://['):
             self.assertIsNone(source_url(url),url)
+
+    async def test_thinking_search_keeps_reasoning_in_tool_history_only(self):
+        self.chat.deepseek_thinking=True
+        first=answer(query='公开资料')
+        original=first.choices[0].message.model_dump
+        first.choices[0].message.model_dump=lambda **kw:{**original(**kw),'reasoning_content':'internal-only'}
+        self.create.side_effect=[first,answer('已核实')]
+        with patch.object(DeepSeekSearch,'lookup',new_callable=AsyncMock,return_value=[{'url':'https://example.com','title':'资料','text':'内容'}]):
+            text=await self.chat.generate(instructions='persona',text='联网搜索公开资料',web_search=True)
+        self.assertNotIn('internal-only',text)
+        messages=self.create.call_args_list[1].kwargs['messages']
+        self.assertEqual(messages[-2]['reasoning_content'],'internal-only')
+        self.assertEqual(self.create.call_args.kwargs['reasoning_effort'],'low')
+        self.assertEqual(self.create.call_args_list[0].kwargs['tool_choice'],'auto')
+        self.assertGreaterEqual(self.create.call_args.kwargs['max_tokens'],4096)
