@@ -21,6 +21,7 @@ from .diagnostic_controls import DiagnosticControls
 from .diagnostics import explanation
 from .operations import Operations
 from .music_controls import MusicControls
+from .reply_context import read_reply_context, ReplyContext
 from .fact_memory import FactMemory
 from .conversation import ConversationService, ConversationStore
 from .ai_usage import AiUsageStore
@@ -334,7 +335,10 @@ async def on_message(message: discord.Message) -> None:
             )
             break
 
-    if bot.user and bot.user in message.mentions and not message.content.startswith(PREFIX) and not moderation_handled:
+    quoted = ReplyContext()
+    if bot.user and not message.content.startswith(PREFIX) and not moderation_handled:
+        quoted = await read_reply_context(message, bot.user.id)
+    if bot.user and (bot.user in message.mentions or quoted.to_bot) and not message.content.startswith(PREFIX) and not moderation_handled:
         mention_text = message.content
         for mention in (bot.user.mention, f"<@!{bot.user.id}>"):
             mention_text = mention_text.replace(mention, "")
@@ -343,6 +347,7 @@ async def on_message(message: discord.Message) -> None:
             for attachment in message.attachments
             if (attachment.content_type or "").lower().startswith("image/")
         ]
+        image_urls = list(dict.fromkeys(image_urls + quoted.images))[:4]
         if image_urls:
             allowed, _ = ai_usage.try_use(
                 message.guild.id if message.guild else None,
@@ -359,7 +364,7 @@ async def on_message(message: discord.Message) -> None:
         if await file_service.basic_extract(message, document_context):
             await bot.process_commands(message)
             return
-        generation_context = document_context
+        generation_context = document_context + ('\n'+quoted.text if quoted.text else '')
         if requested_format(mention_text):
             recent_chat = await asyncio.to_thread(conversations.store.context, message.channel.id)
             if recent_chat:
@@ -370,6 +375,7 @@ async def on_message(message: discord.Message) -> None:
         reply = await conversations.reply(
             guild_id=message.guild.id if message.guild else None,
             document_context=document_context,
+            reply_context=quoted.text,
             task_receipt=await asyncio.to_thread(autonomy.store.last_manager_reply, message.guild.id, message.author.id, message.channel.id) if autonomy is not None and message.guild else '',
             channel_id=message.channel.id,
             user_id=message.author.id,
