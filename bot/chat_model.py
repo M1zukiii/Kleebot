@@ -49,6 +49,14 @@ class ChatModel:
         self._client = None
         self.budget = ModelBudget.from_env()
 
+    def snapshot(self):
+        """Pin a backend for one request or an entire tool conversation."""
+        pinned = object.__new__(ChatModel)
+        pinned.config = self.config
+        pinned._client = self._get_client() if self.config.api_key else None
+        pinned.budget = self.budget
+        return pinned
+
     @property
     def enabled(self):
         return bool(self.config.api_key) and not self.budget.state()[0]
@@ -83,6 +91,10 @@ class ChatModel:
         return self._client
 
     async def generate(self, *, instructions, text, image_urls=None, max_tokens=180, model=None, web_search=False, purpose='chat', reasoning_effort=None):
+        return await self.snapshot()._generate(instructions=instructions,text=text,image_urls=image_urls,
+            max_tokens=max_tokens,model=model,web_search=web_search,purpose=purpose,reasoning_effort=reasoning_effort)
+
+    async def _generate(self, *, instructions, text, image_urls=None, max_tokens=180, model=None, web_search=False, purpose='chat', reasoning_effort=None):
         self.budget.before_request()
         if not self.enabled:
             raise RuntimeError("Chat API key is missing")

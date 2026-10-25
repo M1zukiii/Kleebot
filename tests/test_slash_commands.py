@@ -14,11 +14,12 @@ import asyncio,json
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 from bot.main import prefix_bomb,profile_stats
-from bot.main import bot,Moderation,GuildAgent,SpamGuard,BudgetControls,MathCommands,FileCommands,file_service,conversations,klee_ai,DATA_DIR,get_player
+from bot.main import bot,Moderation,GuildAgent,SpamGuard,BudgetControls,MathCommands,FileCommands,file_service,conversations,klee_ai,DATA_DIR,get_player,model_selection
 from bot.diagnostic_controls import DiagnosticControls
 from bot.operations import Operations
 from bot.music_controls import MusicControls
 from bot.persona_modes import PersonaControls
+from bot.model_controls import ModelControls
 async def main():
     await bot.__aenter__()
     for cog in (Moderation(bot),SpamGuard(bot,DATA_DIR),GuildAgent(bot,klee_ai.chat_model,DATA_DIR,player_factory=get_player),BudgetControls(klee_ai.chat_model.budget),MathCommands(),FileCommands(file_service,conversations)):
@@ -27,6 +28,7 @@ async def main():
     await bot.add_cog(Operations(bot,DATA_DIR))
     await bot.add_cog(MusicControls(bot,get_player,{}))
     await bot.add_cog(PersonaControls(klee_ai.persona_modes))
+    await bot.add_cog(ModelControls(model_selection))
     commands={c.name:c for c in bot.tree.get_commands()}
     guild=SimpleNamespace(id=10)
     actor=SimpleNamespace(id=1,mention='<@1>')
@@ -50,7 +52,7 @@ asyncio.run(main())
         self.assertEqual(result.returncode, 0, result.stderr)
         state = json.loads(result.stdout.splitlines()[-1])
         self.assertEqual(state['missing'], [])
-        for name in ('邪恶模式','善良模式','常驻语音','音乐面板','开发','更新','更新状态','自维护检查','日志频道','诊断','核对操作','清除聊天','读文件','生成文件','公式','额度状态','防刷屏设置','防刷屏状态'):
+        for name in ('切换模型','邪恶模式','善良模式','常驻语音','音乐面板','开发','更新','更新状态','自维护检查','日志频道','诊断','核对操作','清除聊天','读文件','生成文件','公式','额度状态','防刷屏设置','防刷屏状态'):
             self.assertIn(name, state['names'])
         self.assertEqual(state['persona_options'],{'邪恶模式':0,'善良模式':0})
         self.assertEqual(state['options']['读文件'][0]['type'], 11)  # native Attachment option
