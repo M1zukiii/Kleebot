@@ -9,6 +9,7 @@ from urllib.parse import urlparse
 from .chat_model import ChatModel, IncompleteReply
 from .model_budget import BASIC_MESSAGE
 from .diagnostics import DiagnosticStore, explanation, scrub
+from .persona_modes import EVIL_STYLE, MOTHERLY_STYLE, called_mom
 
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -118,12 +119,18 @@ class KleeAI:
             self._client = AsyncOpenAI(**kwargs)
         return self._client
 
-    def _system_prompt(self) -> str:
+    def _system_prompt(self, guild_id=None) -> str:
         try:
             prompt = self.prompt_file.read_text(encoding="utf-8").strip()
         except OSError:
-            return KLEE_SYSTEM_PROMPT
-        return prompt or KLEE_SYSTEM_PROMPT
+            prompt = KLEE_SYSTEM_PROMPT
+        prompt = prompt or KLEE_SYSTEM_PROMPT
+        modes = getattr(self, 'persona_modes', None)
+        if modes is not None and modes.enabled(guild_id):
+            prompt += EVIL_STYLE
+        else:
+            prompt += '\n当前邪恶模式关闭，按基础Klee人设回应，不沿用历史对话中的邪恶模式风格。'
+        return prompt
 
     async def reply(
         self,
@@ -162,8 +169,11 @@ class KleeAI:
         )
 
         try:
+            persona = self._system_prompt((diagnostic_scope or {}).get('guild'))
+            if called_mom(message):
+                persona += MOTHERLY_STYLE
             text = await self.chat_model.generate(
-                instructions=self._system_prompt() + '\n当前这条回复是普通聊天模式，没有在这条回复中执行群管理工具。Klee 已接入管理员任务执行模块，管理员明确委派时可以管理频道、禁言、安排活动和播放音乐。不得声称已经执行这些操作，也不要笼统声称 Klee 没有工具或不能加入语音。具体失败原因、权限和语音状态必须根据真实执行结果；缺少结果时直接说明暂时无法确认，不要猜测。', text=text_prompt,
+                instructions=persona + '\n当前这条回复是普通聊天模式，没有在这条回复中执行群管理工具。Klee 已接入管理员任务执行模块，管理员明确委派时可以管理频道、禁言、安排活动和播放音乐。不得声称已经执行这些操作，也不要笼统声称 Klee 没有工具或不能加入语音。具体失败原因、权限和语音状态必须根据真实执行结果；缺少结果时直接说明暂时无法确认，不要猜测。', text=text_prompt,
                 image_urls=image_urls, max_tokens=2400 if self.chat_model.config.provider == 'openai' else 900,
                 web_search=self.web_search,
             )
