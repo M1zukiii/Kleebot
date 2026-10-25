@@ -114,6 +114,13 @@ async def main():
     msg.reference.resolved=target
     await m.on_message(msg)
     m.conversations.reply.assert_not_awaited()
+    msg.mentions=[bot_user]
+    msg.content='<@3> 邪恶模式关闭'
+    m.klee_ai.persona_modes.set_enabled(1,True)
+    await m.on_message(msg)
+    assert m.klee_ai.persona_modes.enabled(1)
+    assert '没有切换' in msg.reply.call_args.args[0]
+    m.conversations.reply.assert_not_awaited()
     print('reply integration verified')
     await m.bot.close()
 asyncio.run(main())

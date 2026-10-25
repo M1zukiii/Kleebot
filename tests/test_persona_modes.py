@@ -33,26 +33,34 @@ class PersonaTests(unittest.IsolatedAsyncioTestCase):
         for text in ('Klee的妈妈是谁','你妈妈艾莉丝呢','妈妈是谁','艾莉丝是你妈妈吗','讲讲妈妈这个词','> 妈妈，帮帮我','```\n妈妈你好\n```'):
             self.assertFalse(called_mom(text),text)
 
-    async def test_admin_toggle_rechecks_current_permissions_and_status_does_not_write(self):
+    async def test_two_commands_recheck_current_permissions(self):
         actor = NS(id=2,guild_permissions=NS(administrator=False,manage_guild=False))
         guild = NS(id=1,owner_id=9,fetch_member=AsyncMock(return_value=actor))
         interaction = NS(guild=guild,user=NS(id=2),response=NS(defer=AsyncMock()),followup=NS(send=AsyncMock()))
         cog = PersonaControls(self.store)
-        await cog.evil.callback(cog,interaction,True)
+        await cog.evil.callback(cog,interaction)
         self.assertFalse(self.store.enabled(1))
         actor.guild_permissions.manage_guild=True
-        await cog.evil.callback(cog,interaction,None)
-        self.assertFalse(self.store.enabled(1))
-        await cog.evil.callback(cog,interaction,True)
+        await cog.evil.callback(cog,interaction)
         self.assertTrue(self.store.enabled(1))
         actor.guild_permissions.manage_guild=False
-        await cog.evil.callback(cog,interaction,False)
+        await cog.good.callback(cog,interaction)
         self.assertTrue(self.store.enabled(1))
         actor.id=9
         interaction.user.id=9
-        await cog.evil.callback(cog,interaction,False)
+        await cog.good.callback(cog,interaction)
         self.assertFalse(self.store.enabled(1))
         self.assertEqual(interaction.followup.send.call_args.kwargs['allowed_mentions'].to_dict()['parse'],[])
+
+    def test_plain_chat_never_switches_or_claims_to_switch(self):
+        self.store.set_enabled(1,True)
+        for text in ('邪恶模式关闭','关闭邪恶模式','请帮我切换到善良模式','邪恶模式','善良模式'):
+            text = self.store.switch_hint(1,text)
+            self.assertIsNotNone(text)
+            self.assertIn('没有切换',text)
+            self.assertIn('当前为邪恶模式',text)
+            self.assertTrue(self.store.enabled(1))
+        self.assertIsNone(self.store.switch_hint(1,'你觉得邪恶模式怎么样？'))
 
     async def test_style_is_per_request_and_mom_address_is_independent(self):
         with patch.dict(os.environ, {'CHAT_PROVIDER':'openai','CHAT_API_KEY':'test-key','KLEE_DATA_DIR':self.tmp.name},clear=True):

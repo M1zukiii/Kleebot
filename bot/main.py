@@ -316,7 +316,11 @@ async def on_message(message: discord.Message) -> None:
             moderation_handled = await spam_guard.observe(message)
         except Exception as exc:
             print(f'spam guard failed: {type(exc).__name__}', flush=True)
-    if autonomy is not None and not moderation_handled:
+    persona_hint = None
+    if bot.user and bot.user in message.mentions and not message.content.startswith(PREFIX) and not moderation_handled:
+        plain = re.sub(r'<@!?'+str(bot.user.id)+r'>', '', message.content).strip()
+        persona_hint = await asyncio.to_thread(klee_ai.persona_modes.switch_hint, message.guild.id if message.guild else None, plain)
+    if autonomy is not None and not moderation_handled and not persona_hint:
         try:
             moderation_handled = await autonomy.observe(message)
         except Exception as exc:
@@ -337,6 +341,10 @@ async def on_message(message: discord.Message) -> None:
             )
             break
 
+    if persona_hint and not moderation_handled:
+        await message.reply(persona_hint, allowed_mentions=discord.AllowedMentions.none())
+        await bot.process_commands(message)
+        return
     quoted = ReplyContext()
     if bot.user and not message.content.startswith(PREFIX) and not moderation_handled:
         quoted = await read_reply_context(message, bot.user.id)
