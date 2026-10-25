@@ -125,6 +125,17 @@ class ModelControlTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(create.call_args.kwargs['extra_body'],{'thinking':{'type':'disabled'}})
         self.assertEqual(self.chat.budget._usage['requests'],1)
 
+    async def test_late_quota_failure_from_old_backend_does_not_pause_new_backend(self):
+        error=RuntimeError('old quota')
+        error.code='insufficient_quota'
+        self.chat._client=NS(responses=NS(create=AsyncMock(side_effect=error)))
+        pinned=self.chat.snapshot()
+        self.service.probe=AsyncMock()
+        await self.service.select('flash')
+        with self.assertRaises(RuntimeError):
+            await pinned.response(model='gpt-6-luna')
+        self.assertFalse(self.chat.budget.state()[0])
+
     async def test_facade_web_and_prompt_model_follow_switch_without_changing_images(self):
         with patch.dict(os.environ,{'CHAT_PROVIDER':'openai','CHAT_API_KEY':'chat-test','OPENAI_API_KEY':'image-test'},clear=True):
             ai=KleeAI()

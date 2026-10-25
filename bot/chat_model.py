@@ -47,6 +47,7 @@ class ChatModel:
     def __init__(self, config=None):
         self.config = config or ChatConfig.from_env()
         self._client = None
+        self._root = self
         self.budget = ModelBudget.from_env()
 
     def snapshot(self):
@@ -55,6 +56,7 @@ class ChatModel:
         pinned.config = self.config
         pinned._client = self._get_client() if self.config.api_key else None
         pinned.budget = self.budget
+        pinned._root = self._root
         return pinned
 
     @property
@@ -66,7 +68,8 @@ class ChatModel:
         try:
             response = await self._get_client().responses.create(**kwargs)
         except Exception as exc:
-            self.budget.failed(exc)
+            if self.config == self._root.config:
+                self.budget.failed(exc)
             raise
         self.budget.record(response, kwargs.get('model', self.config.model), usage_kind)
         return response
@@ -76,7 +79,8 @@ class ChatModel:
         try:
             response = await self._get_client().chat.completions.create(**kwargs)
         except Exception as exc:
-            self.budget.failed(exc)
+            if self.config == self._root.config:
+                self.budget.failed(exc)
             raise
         self.budget.record(response, kwargs.get('model', self.config.model), usage_kind)
         return response
