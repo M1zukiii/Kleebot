@@ -141,7 +141,7 @@ class ModelControlTests(unittest.IsolatedAsyncioTestCase):
             ai=KleeAI()
         self.assertTrue(ai.web_search)
         ai.chat_model.config=self.service.profiles['flash']
-        self.assertFalse(ai.web_search)
+        self.assertTrue(ai.web_search)
         self.assertEqual(ai.novelai_prompt_model,'deepseek-flash')
         self.assertEqual(ai.api_key,'image-test')
         ai.chat_model.config=self.service.profiles['luna']

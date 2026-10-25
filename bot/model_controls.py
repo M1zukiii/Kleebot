@@ -46,8 +46,8 @@ class ModelSelection:
         config = self.chat.config
         text = f'当前聊天模型：{config.model}（{config.provider}）。'
         text += '\n可切换：'+ '；'.join(model+('：密钥已配置' if self.profiles[name].api_key else '：缺少密钥') for name,(_,model) in TARGETS.items())
-        if config.provider == 'deepseek':
-            text += '\nDeepSeek 的联网搜索尚未接入。'
+        search=os.getenv('KLEE_WEB_SEARCH','true').strip().lower() in {'1','true','yes','on'}
+        text += '\n联网搜索：'+('开启' if search else '关闭')+'。'
         if self.chat.budget.state()[0]:
             text += '\n目前仍处于基础模式；切换模型不会自动恢复AI调用，请使用 /恢复完整。'
         return text

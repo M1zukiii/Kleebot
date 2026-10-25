@@ -81,7 +81,7 @@ class KleeAI:
 
     @property
     def web_search(self):
-        return self._web_search_requested and self.chat_model.config.provider == 'openai'
+        return self._web_search_requested
 
     @property
     def novelai_prompt_model(self):
