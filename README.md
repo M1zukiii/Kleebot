@@ -2,6 +2,10 @@
 
 Self-hosted Discord music bot for YouTube, Bilibili, NicoNico, and Spotify track links. It uses `discord.py`, `yt-dlp`, and `ffmpeg`, and is designed to run with Docker Compose.
 
+Windows 一键安装：下载并完整解压源码后，双击 `install-windows.cmd`。
+自动准备环境、完整依赖、FFmpeg 和桌面控制台；密钥手动填写，已有配置和数据保留。
+详见 [Windows 安装说明](WINDOWS_INSTALL.md)。
+
 ## Features
 
 - Slash commands for music playback, queue control, volume, and daily fortune drawing.
