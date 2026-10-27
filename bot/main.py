@@ -14,7 +14,7 @@ from discord import app_commands
 from discord.ext import commands, tasks
 from dotenv import load_dotenv
 
-from .maintenance import is_owner, request_development, request_update, update_status, maintenance_check
+from .maintenance import is_owner, can_update, request_development, request_update, update_status, maintenance_check
 from .moderation import Moderation
 from .guild_agent import GuildAgent
 from .spam_guard import SpamGuard
@@ -1432,10 +1432,12 @@ async def prefix_develop(ctx: commands.Context, *, task: str) -> None:
     await ctx.send(result, allowed_mentions=discord.AllowedMentions.none())
 
 
-@bot.hybrid_command(name="更新", aliases=["update"], description="请求检查 main 分支、测试并安装新版（仅所有者）。")
+@bot.hybrid_command(name="更新", aliases=["update"], description="检查 main、测试并安装新版（服务器管理员或配置的主人）。")
 async def prefix_update(ctx: commands.Context) -> None:
-    if not is_owner(ctx.author.id):
-        await ctx.send("这个指令只开放给配置的主人。")
+    if ctx.interaction:
+        await ctx.defer(ephemeral=True)
+    if not await can_update(ctx.author.id, ctx.guild):
+        await ctx.send("只有服务器所有者、拥有 Administrator 权限的管理员或配置的主人可以更新。")
         return
     if os.name == 'nt' and os.getenv('KLEE_LOCAL_SUPERVISED') != '1':
         await ctx.send("当前是普通本机模式，请先停止 Klee，再双击 start-maintained.cmd 启用自维护。")
@@ -1444,10 +1446,12 @@ async def prefix_update(ctx: commands.Context) -> None:
     await ctx.send("已提交更新检查请求。更新程序会检查 main、测试新版并重启；结果请看 /更新状态。")
 
 
-@bot.hybrid_command(name="更新状态", aliases=["updatestatus"], description="查看当前部署版本和最近更新结果（仅所有者）。")
+@bot.hybrid_command(name="更新状态", aliases=["updatestatus"], description="查看部署版本和更新结果（服务器管理员或配置的主人）。")
 async def prefix_update_status(ctx: commands.Context) -> None:
-    if not is_owner(ctx.author.id):
-        await ctx.send("这个指令只开放给配置的主人。")
+    if ctx.interaction:
+        await ctx.defer(ephemeral=True)
+    if not await can_update(ctx.author.id, ctx.guild):
+        await ctx.send("只有服务器所有者、拥有 Administrator 权限的管理员或配置的主人可以查看更新状态。")
         return
     await ctx.send(update_status(DATA_DIR), allowed_mentions=discord.AllowedMentions.none())
 

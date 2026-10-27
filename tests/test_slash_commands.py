@@ -39,6 +39,19 @@ async def main():
             await bot.get_command('抛硬币').callback(coin_ctx)
         assert '**'+side+'**' in coin_ctx.send.call_args.args[0]
         assert not coin_ctx.send.call_args.kwargs['allowed_mentions'].everyone
+    update_guild=SimpleNamespace(owner_id=1,fetch_member=AsyncMock(return_value=SimpleNamespace(guild_permissions=SimpleNamespace(administrator=True))))
+    update_ctx=SimpleNamespace(author=SimpleNamespace(id=2),guild=update_guild,interaction=None,send=AsyncMock())
+    with patch.dict('os.environ',{'KLEE_LOCAL_SUPERVISED':'1','KLEE_OWNER_IDS':'7'}):
+        with patch('bot.main.request_update') as request:
+            await bot.get_command('更新').callback(update_ctx)
+            request.assert_called_once_with(DATA_DIR)
+        update_guild.fetch_member.return_value.guild_permissions.administrator=False
+        with patch('bot.main.request_update') as request:
+            await bot.get_command('更新').callback(update_ctx)
+            request.assert_not_called()
+        with patch('bot.main.update_status') as status:
+            await bot.get_command('更新状态').callback(update_ctx)
+            status.assert_not_called()
     guild=SimpleNamespace(id=10)
     actor=SimpleNamespace(id=1,mention='<@1>')
     target=SimpleNamespace(id=2,mention='<@2>')

@@ -1,14 +1,33 @@
-"""Owner-only maintenance entry points. No shell or Docker access in the bot."""
+"""Authorized maintenance entry points. No shell or Docker access in the bot."""
+import asyncio
 import json
 import os
 import re
 import time
 from pathlib import Path
 
+import discord
+
 
 def is_owner(user_id: int) -> bool:
     owners = {part.strip() for part in os.getenv("KLEE_OWNER_IDS", "").split(",") if part.strip()}
     return str(user_id) in owners
+
+
+async def can_update(user_id: int, guild) -> bool:
+    """Configured owners or actual guild administrators may update the host."""
+    if is_owner(user_id):
+        return True
+    if guild is None:
+        return False
+    if user_id == guild.owner_id:
+        return True
+    try:
+        async with asyncio.timeout(10):
+            member = await guild.fetch_member(user_id)
+    except (discord.HTTPException, OSError, TimeoutError):
+        return False
+    return bool(member.guild_permissions.administrator)
 
 
 def request_update(data_dir: Path) -> None:
