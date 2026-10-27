@@ -30,6 +30,15 @@ async def main():
     await bot.add_cog(PersonaControls(klee_ai.persona_modes))
     await bot.add_cog(ModelControls(model_selection))
     commands={c.name:c for c in bot.tree.get_commands()}
+    assert '抛硬币' in commands
+    assert not commands['抛硬币'].parameters
+    coin_ctx=SimpleNamespace(send=AsyncMock())
+    from unittest.mock import patch
+    for side in ('正面','反面'):
+        with patch('bot.main.secrets.choice',return_value=side):
+            await bot.get_command('抛硬币').callback(coin_ctx)
+        assert '**'+side+'**' in coin_ctx.send.call_args.args[0]
+        assert not coin_ctx.send.call_args.kwargs['allowed_mentions'].everyone
     guild=SimpleNamespace(id=10)
     actor=SimpleNamespace(id=1,mention='<@1>')
     target=SimpleNamespace(id=2,mention='<@2>')
