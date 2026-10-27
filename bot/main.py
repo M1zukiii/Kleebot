@@ -4,6 +4,7 @@ import re
 import time
 import tempfile
 import signal
+import secrets
 from io import BytesIO
 from pathlib import Path
 from urllib.parse import urlparse
@@ -1403,6 +1404,14 @@ async def prefix_promptgen(ctx: commands.Context, *, prompt: str) -> None:
         await ctx.send(f"Klee 整理不出来这个提示词... {exc}")
         return
     await ctx.send(f"```text\n{generated[:1800]}\n```")
+
+
+@bot.hybrid_command(name="抛硬币", description="让 Klee 抛一枚硬币，随机得到正面或反面，不消耗模型额度。")
+@commands.cooldown(2, 5, commands.BucketType.user)
+async def prefix_coin(ctx: commands.Context) -> None:
+    result = secrets.choice(('正面', '反面'))
+    await ctx.send(f'🪙 Klee 把硬币抛起来啦——是 **{result}**！',
+                   allowed_mentions=discord.AllowedMentions.none())
 
 
 @bot.hybrid_command(name="开发", aliases=["develop"], description="提交自维护开发需求，生成 GitHub 草稿修改（仅所有者）。")
