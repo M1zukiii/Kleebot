@@ -120,6 +120,82 @@ class ModerationTests(unittest.IsolatedAsyncioTestCase):
             await cog.execute(self.guild, self.actor, self.target, self.channel, 10, '刷屏')
         self.channel.send.assert_not_awaited()
 
+    def timestamp_error(self, date='Thu, 29 Oct 2026 12:00:00 GMT'):
+        response = SimpleNamespace(status=400, reason='Bad Request', headers={'Date': date} if date else {})
+        return discord.HTTPException(response, {'code': 50035, 'message': 'Invalid Form Body',
+            'errors': {'communication_disabled_until': {'_errors': [{'code': 'INVALID_COMMUNICATION_DISABLED_TIMESTAMP',
+                'message': 'Invalid communication disabled timestamp'}]}}})
+
+    async def test_invalid_local_clock_is_corrected_from_discord_once(self):
+        self.target.timeout.side_effect = [self.timestamp_error(), None]
+        receipt = await self.apply(minutes=1)
+        server_now = datetime(2026, 10, 29, 12, tzinfo=timezone.utc)
+        self.assertEqual(self.target.timeout.await_count, 2)
+        self.assertAlmostEqual((receipt.until-server_now).total_seconds(), 60, delta=2)
+        self.assertEqual(self.target.timeout.await_args.args[0], receipt.until)
+        calls = self.target.timeout.await_args_list
+        self.assertEqual(calls[0].kwargs['reason'], calls[1].kwargs['reason'])
+        self.assertEqual(self.guild.fetch_member.await_count, 6)
+        self.channel.send.assert_not_awaited()
+
+    async def test_twenty_eight_day_limit_has_safety_margin(self):
+        before = datetime.now(timezone.utc)
+        receipt = await self.apply(minutes=40320)
+        seconds = (receipt.until-before).total_seconds()
+        self.assertAlmostEqual(seconds, 28*86400-5, delta=2)
+        self.assertLess(seconds, 28*86400)
+
+    async def test_missing_or_bad_server_date_does_not_retry(self):
+        for value in (None, 'not a date'):
+            self.target.timeout.reset_mock(side_effect=True)
+            self.target.timeout.side_effect = self.timestamp_error(value)
+            with self.assertRaisesRegex(ModerationError, '同步'):
+                await self.apply()
+            self.target.timeout.assert_awaited_once()
+
+    async def test_repeated_timestamp_rejection_stops_after_second_attempt(self):
+        self.target.timeout.side_effect = self.timestamp_error()
+        with self.assertRaisesRegex(ModerationError, '停止重试'):
+            await self.apply()
+        self.assertEqual(self.target.timeout.await_count, 2)
+        self.channel.send.assert_not_awaited()
+
+    async def test_unrelated_validation_and_ambiguous_failures_never_retry(self):
+        errors = [discord.HTTPException(SimpleNamespace(status=400, reason='Bad Request'),
+                    {'code': 50035, 'message': 'Invalid reason'}),
+                  discord.HTTPException(SimpleNamespace(status=503, reason='Unavailable'), 'unavailable'),
+                  TimeoutError()]
+        for error in errors:
+            self.target.timeout.reset_mock(side_effect=True)
+            self.target.timeout.side_effect = error
+            with self.assertRaises(type(error)):
+                await self.apply()
+            self.target.timeout.assert_awaited_once()
+
+    async def test_unmute_does_not_use_timestamp_recovery(self):
+        self.target.timeout.side_effect = self.timestamp_error()
+        with self.assertRaises(discord.HTTPException):
+            await self.apply(minutes=None)
+        self.target.timeout.assert_awaited_once()
+
+    async def test_permissions_revoked_after_rejection_prevent_retry(self):
+        async def reject(*args, **kwargs):
+            self.actor.guild_permissions.moderate_members = False
+            raise self.timestamp_error()
+        self.target.timeout.side_effect = reject
+        with self.assertRaises(ModerationError):
+            await self.apply()
+        self.target.timeout.assert_awaited_once()
+
+    async def test_policy_guard_is_rechecked_before_recovery_write(self):
+        self.target.timeout.side_effect = [self.timestamp_error(), None]
+        guard = AsyncMock(side_effect=[None, ModerationError('自治已暂停')])
+        with self.assertRaisesRegex(ModerationError, '暂停'):
+            await apply_timeout(self.guild, self.actor, self.target, self.bot_member,
+                                self.channel, 1, '刷屏', before_apply=guard)
+        self.assertEqual(guard.await_count, 2)
+        self.target.timeout.assert_awaited_once()
+
     async def test_cog_registers_slash_and_prefix_commands(self):
         bot = commands.Bot(command_prefix='!', intents=discord.Intents.none())
         async with bot:
