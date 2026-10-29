@@ -1,6 +1,8 @@
 """Manual member timeouts with real permission checks and public receipts."""
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
+from email.utils import parsedate_to_datetime
+import time
 
 import discord
 from discord import app_commands
@@ -9,6 +11,33 @@ from discord.ext import commands
 
 class ModerationError(ValueError):
     pass
+
+
+def invalid_timeout_timestamp(error):
+    return (isinstance(error, discord.HTTPException) and error.status == 400
+            and error.code == 50035 and 'communication_disabled_until' in error.text
+            and 'invalid communication disabled timestamp' in error.text.lower())
+
+
+def timeout_deadline(now, minutes):
+    # Discord enforces 28 days against its own clock; avoid the exact boundary.
+    duration = timedelta(minutes=minutes)
+    if minutes == 40320:
+        duration -= timedelta(seconds=5)
+    return now + duration
+
+
+def rejected_timeout_clock(error):
+    """Read Discord's own rejection response, without another network request."""
+    headers = getattr(error.response, 'headers', {})
+    value = headers.get('Date')
+    try:
+        now = parsedate_to_datetime(value)
+        if now.tzinfo is None:
+            raise ValueError('Missing timezone')
+        return now.astimezone(timezone.utc)
+    except (TypeError, ValueError, OverflowError):
+        raise ModerationError('Discord 拒绝了禁言截止时间，且无法取得服务器时间。请在运行 Klee 的电脑开启自动设置时间并立即同步，然后重试。') from error
 
 
 def can_moderate(member):
@@ -81,25 +110,47 @@ async def apply_timeout(guild, actor, target, bot_member, channel, minutes, reas
     if not 1 <= len(reason) <= 400:
         raise ModerationError('请填写 1–400 字的原因，这段原因会公开显示。')
     check_members(guild, actor, target, bot_member)
-    # Fetch current memberships instead of trusting old command/cache snapshots.
-    actor = await guild.fetch_member(actor.id)
-    target = await guild.fetch_member(target.id)
-    bot_member = await guild.fetch_member(bot_member.id)
-    check_members(guild, actor, target, bot_member)
-    permissions = channel.permissions_for(bot_member)
-    if not permissions.view_channel or not permissions.send_messages:
-        raise ModerationError('Klee 需要此频道的查看和发送消息权限，才能公开发布禁言公告。')
-    if isinstance(channel, discord.Thread) and not permissions.send_messages_in_threads:
-        raise ModerationError('Klee 缺少在线程中发送公告的权限，请到文字频道执行。')
-    until = datetime.now(timezone.utc) + timedelta(minutes=minutes) if minutes is not None else None
-    if until is None and not target.is_timed_out():
+    async def preflight():
+        nonlocal actor, target, bot_member
+        # Recheck permissions at each attempt, including after a rejected write.
+        actor = await guild.fetch_member(actor.id)
+        target = await guild.fetch_member(target.id)
+        bot_member = await guild.fetch_member(bot_member.id)
+        check_members(guild, actor, target, bot_member)
+        permissions = channel.permissions_for(bot_member)
+        if not permissions.view_channel or not permissions.send_messages:
+            raise ModerationError('Klee 需要此频道的查看和发送消息权限，才能公开发布禁言公告。')
+        if isinstance(channel, discord.Thread) and not permissions.send_messages_in_threads:
+            raise ModerationError('Klee 缺少在线程中发送公告的权限，请到文字频道执行。')
+
+    await preflight()
+    if minutes is None and not target.is_timed_out():
         raise ModerationError('这位成员当前没有被禁言。')
     audit_reason = f'Klee moderation authorized by {actor.id}: {reason}'
     if audit_ref is not None:
         audit_reason += f' ref={audit_ref}'
     if before_apply is not None:
         await before_apply()
-    await target.timeout(until, reason=audit_reason)
+    until = timeout_deadline(datetime.now(timezone.utc), minutes) if minutes is not None else None
+    try:
+        await target.timeout(until, reason=audit_reason)
+    except discord.HTTPException as error:
+        # Only this explicit validation rejection confirms that no write occurred.
+        # Never retry a timeout, 5xx, permission error or an uncertain result.
+        if minutes is None or not invalid_timeout_timestamp(error):
+            raise
+        received = time.monotonic()
+        server_now = rejected_timeout_clock(error)
+        await preflight()
+        if before_apply is not None:
+            await before_apply()
+        until = timeout_deadline(server_now + timedelta(seconds=time.monotonic()-received), minutes)
+        try:
+            await target.timeout(until, reason=audit_reason)
+        except discord.HTTPException as retry_error:
+            if invalid_timeout_timestamp(retry_error):
+                raise ModerationError('Discord 再次拒绝了禁言截止时间，已停止重试。请同步运行 Klee 的电脑时间后再试。') from retry_error
+            raise
     return ModerationReceipt(target.id, actor.id, minutes, reason, until)
 
 
